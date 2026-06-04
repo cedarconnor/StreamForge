@@ -1,9 +1,18 @@
+# Python
 __pycache__/
 *.pyc
-.venv/
-models/            # downloaded weights — never commit
-out/               # rendered frames / reports
-*.safetensors
-*.engine           # TensorRT engines
-.pytest_cache/
 *.egg-info/
+.pytest_cache/
+
+# Virtual environment
+.venv/
+
+# Downloaded model weights — never commit
+models/
+
+# Rendered frames / benchmark reports
+out/
+
+# Large binaries
+*.safetensors
+*.engine
