@@ -11,6 +11,19 @@
 ## Test suite
 - 31/31 pure-logic tests green (no GPU/weights needed): `.\.venv\Scripts\python.exe -m pytest`.
 
+## Phase-5 decoupling gate (Task 5.2) — PASS (model-independent, real threads)
+- `run_live.py --fps 50 --seconds 10 --res 512 --fake-ai-fps 12 --sink null`
+- Result: emitted=501 (~500 expected), **output jitter = 0.15 ms** (threshold <2 ms),
+  repeats=386, fresh AI ~115 (~11.5 fps) — sacred output clock holds under slow AI. ✓
+
+## Pipeline API facts (from installed diffusers 0.38.0 introspection)
+- `Flux2KleinPipeline.__call__`: accepts `image`, `prompt`, `height`, `width`,
+  `num_inference_steps`, `sigmas`, `guidance_scale` (default 4.0), `prompt_embeds`,
+  `max_sequence_length=512`, `text_encoder_out_layers=(9,18,27)`. **No `strength` param** ->
+  `text_magnitude`->`guidance_scale`; `ref_strength` needs a MANUAL encode->noise->denoise
+  loop (image= is reference-conditioning, not strength img2img).
+- Test clip: D:\StreamForge\TestFile\DriveVideo.mp4 = 640x480, 30 fps, 436 frames.
+
 ## Pending GPU/model gates (records to fill)
 - [ ] Task 0.4 full-stack still-image gate: full-VAE std=__, taef2 std=__, peak VRAM=__ GB.
 - [ ] Task 2.4 eager baseline (512²): infer p50/p95/p99=__/__/__ ms, jitter=__, VRAM=__.
