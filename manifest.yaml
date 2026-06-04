@@ -1,0 +1,12 @@
+# Version-locked model stack (design §4.1.1). A build artifact.
+# Revisions are frozen to real commit hashes by scripts/download_models.py.
+# The FILL_FROM_DOWNLOAD tokens FAIL manifest validation on purpose until resolved.
+transformer:  { repo: black-forest-labs/FLUX.2-klein-4B, revision: "FILL_FROM_DOWNLOAD" }
+text_encoder: { repo: Qwen/Qwen3-4B,                     revision: "FILL_FROM_DOWNLOAD" }
+tokenizer:    { repo: Qwen/Qwen3-4B,                     revision: "FILL_FROM_DOWNLOAD" }
+vae_full:     { repo: black-forest-labs/FLUX.2-klein-4B, revision: "FILL_FROM_DOWNLOAD", file: flux2-vae.safetensors }
+vae_tiny:     { repo: madebyollin/taef2,                 revision: "FILL_FROM_DOWNLOAD" }
+scheduler:    flow_match_power_curve
+precision:    bf16            # A6000 = Ampere: bf16/fp16 + int8. NO native FP8.
+steps:        4
+license:      Apache-2.0
