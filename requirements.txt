@@ -1,0 +1,13 @@
+# torch + torchvision are installed separately, CUDA-matched (cu128), to avoid the
+# flux2 package's torch==2.8.0 pin clobbering the CUDA build (design §4.1.1).
+transformers==4.56.1
+diffusers
+accelerate
+safetensors
+huggingface_hub
+pydantic>=2
+pyyaml
+numpy
+pillow
+opencv-python
+pytest

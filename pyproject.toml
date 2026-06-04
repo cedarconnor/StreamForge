@@ -1,0 +1,20 @@
+[project]
+name = "streamforge"
+version = "0.0.1"
+requires-python = ">=3.11,<3.12"
+description = "Real-time FLUX live-restyle engine"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "gpu: requires a CUDA GPU (deselect with -m 'not gpu')",
+  "model: requires downloaded model weights",
+]
