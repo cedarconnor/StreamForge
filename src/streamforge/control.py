@@ -4,9 +4,13 @@ Instead of a single "strength" knob, live behavior is governed by two orthogonal
   - ref_strength    : how closely output follows the INPUT frame's structure (higher = faithful)
   - text_magnitude  : how strongly the PROMPT/style asserts itself (higher = more stylized)
 
-These map onto the FLUX.2-klein mechanics confirmed during the prior-art pass:
+These map onto the FLUX.2-klein mechanics confirmed empirically (Phase-0 still-image gate):
   - ref_strength  -> img2img denoise strength (high ref_strength => less noise added => faithful)
-  - text_magnitude-> the distilled guidance scalar (FLUX.2 passes a guidance_vec)
+  - text_magnitude-> prompt-EMBEDDING interpolation/scaling, NOT guidance_scale.
+    The distilled klein-4B IGNORES guidance_scale ("ignored for step-wise distilled models"),
+    so the EagerRuntime implements text_magnitude as lerp(neutral_embeds, prompt_embeds, tm)
+    (tm>1 exaggerates). The `guidance` field below is retained only for non-distilled paths
+    (base 4B / bake-off variants that DO respond to guidance) and is ignored by distilled.
 
 The functional form here is fixed; the numeric bounds are Phase-3 calibration targets.
 """

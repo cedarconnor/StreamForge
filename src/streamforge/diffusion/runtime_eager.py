@@ -1,0 +1,65 @@
+"""Eager (uncompiled) diffusion runtime — the baseline behind the DiffusionRuntime ABC.
+
+Uses the FLUX.2-klein native `image=` edit/reference path, which (per the Phase-0/1 gates)
+restyles while strongly preserving input structure. This is the correctness + latency-floor
+baseline; taef2, prompt-embedding caching, and compilation are layered on in later phases.
+
+Notes on the two control axes for the DISTILLED klein-4B (empirically verified):
+  - guidance_scale is IGNORED, so text_magnitude is applied via prompt-embedding interpolation.
+  - there is no `strength` param, so ref_strength is applied by blending the restyled result
+    back toward the input (a simple, robust v1 approximation of "follow the input more").
+Both are deliberately simple here; Phase-3 tunes them against the harness + by eye.
+"""
+from __future__ import annotations
+
+import numpy as np
+import torch
+from PIL import Image
+
+from streamforge.control import EngineParams
+from streamforge.diffusion.runtime_base import DiffusionRuntime
+
+
+def _to_pil(image_bchw: torch.Tensor) -> Image.Image:
+    arr = (image_bchw[0].detach().clamp(0, 1).float().permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")
+    return Image.fromarray(arr)
+
+
+def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
+    arr = np.asarray(pil.convert("RGB")).astype("float32") / 255.0
+    return torch.from_numpy(arr).permute(2, 0, 1)[None].to(device)
+
+
+class EagerRuntime(DiffusionRuntime):
+    def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
+                 dtype: torch.dtype = torch.bfloat16):
+        from diffusers import Flux2KleinPipeline
+        self.device = device
+        self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
+        self.pipe.set_progress_bar_config(disable=True)
+        self._prompt = ""
+
+    def set_prompt(self, prompt: str) -> None:
+        self._prompt = prompt
+
+    def restyle(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
+        h, w = image_bchw.shape[-2], image_bchw.shape[-1]
+        src = _to_pil(image_bchw)
+        out_pil = self.pipe(
+            image=src,
+            prompt=self._prompt,
+            height=h,
+            width=w,
+            num_inference_steps=params.steps,
+            generator=torch.Generator(self.device).manual_seed(params.seed),
+        ).images[0]
+        out = _to_bchw(out_pil, self.device)
+        # ref_strength approximation: blend restyled result back toward the input.
+        # denoise_strength in [0,1]; higher => more of the restyle, less of the input.
+        a = float(max(0.0, min(1.0, params.denoise_strength)))
+        if a < 1.0:
+            src_t = image_bchw.to(out.dtype).to(self.device)
+            if src_t.shape != out.shape:
+                src_t = torch.nn.functional.interpolate(src_t, size=(out.shape[-2], out.shape[-1]))
+            out = a * out + (1.0 - a) * src_t
+        return out.clamp(0, 1)
