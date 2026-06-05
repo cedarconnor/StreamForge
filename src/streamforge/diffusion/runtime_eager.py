@@ -32,12 +32,16 @@ def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
 
 class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
-                 dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True):
+                 dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True,
+                 compile_transformer: bool = False):
         from diffusers import Flux2KleinPipeline
         self.device = device
         self.cache_prompt = cache_prompt
         self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
         self.pipe.set_progress_bar_config(disable=True)
+        if compile_transformer:
+            # Path C of the Phase-4 bake-off: torch.compile the transformer forward.
+            self.pipe.transformer = torch.compile(self.pipe.transformer, mode="default")
         self._prompt = ""
         self._prompt_embeds = None   # cached Qwen3 embeddings (design §4.4)
 

@@ -16,6 +16,9 @@ def _build_runtime(name: str):
     if name == "eager":
         from streamforge.diffusion.runtime_eager import EagerRuntime
         return EagerRuntime()
+    if name == "eager-compile":
+        from streamforge.diffusion.runtime_eager import EagerRuntime
+        return EagerRuntime(compile_transformer=True)
     raise SystemExit(f"unknown runtime {name!r}")
 
 

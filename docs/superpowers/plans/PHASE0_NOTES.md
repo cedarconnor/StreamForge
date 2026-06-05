@@ -63,6 +63,14 @@ Implications:
     structure-adherence cost. Worth prototyping as an alternate runtime / Phase-4 input.
 - [ ] Task 1.3 structure adherence: edge-IoU PRESERVE/SUBTLE/BALANCED/FOLLOW/FORCE = __.
 
+## Bake-off Path C (torch.compile) — BLOCKED on Windows (2026-06-05)
+- `torch.compile(transformer)` fails: `torch._inductor.exc.TritonMissing` — Triton/inductor
+  is not available on Windows by default. Unblock options: `pip install triton-windows`
+  (version must match torch 2.11+cu128; uncertain), or run under WSL/Linux. Left the
+  `compile_transformer` flag in EagerRuntime (works on Linux / with triton-windows).
+- => On native Windows, the viable Phase-4 paths are Path A (TensorRT) and Path B′
+  (existing Ampere INT8/4-bit quants), not torch.compile.
+
 ## Nunchaku / Path B
 - See NUNCHAKU_DECISION.md — literal Nunchaku-4B unavailable; bake-off substitutes existing
   Ampere 4-bit/INT8 quants (SDNQ-4bit, INT8-Comfy).
