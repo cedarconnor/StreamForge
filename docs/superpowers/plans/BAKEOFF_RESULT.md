@@ -10,6 +10,16 @@ Measured at 512², 4 steps, `image=` restyle path, prompt-cached. Baseline = bf1
 | C | torch.compile (inductor) | — | — | **blocked**: Triton missing on Windows |
 | A | TensorRT | not yet tested | — | only Windows-native speedup left |
 
+## Classic img2img mode — IMPLEMENTED + measured (2026-06-05)
+Added `EagerRuntime(mode="img2img")`: encode -> noise@strength -> denoise SAME tokens (no
+reference concat), validated by a 1.2/255 encode→decode roundtrip.
+- **infer p50 = 358 ms** @512² BALANCED (vs 1049 ms edit path) = **~2.9× faster** (~2.8 fps), 16.7 GB.
+- Latency scales with strength: BALANCED (denoise 0.69) runs ~2 of 4 steps; faithful presets are
+  even faster, FORCE runs ~all 4. So fidelity↑ cadence↑ together at the faithful end.
+- Quality tradeoff (validated): low strength = faithful/under-styled; high strength = hallucinates
+  (loses structure — the §7.2 classic weakness). Edit path keeps structure+style but costs 3×.
+- **Recommendation:** ship BOTH modes; pick per show (edit = structure-critical; img2img = cadence-critical).
+
 ## Conclusions
 1. **Quantization (bitsandbytes) is the wrong tool for cadence here.** It reduces VRAM (which
    was never the constraint — 16.7/48 GB) at a latency *cost*. Not a speed win.

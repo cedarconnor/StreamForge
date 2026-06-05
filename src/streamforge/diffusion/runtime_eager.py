@@ -1,14 +1,17 @@
 """Eager (uncompiled) diffusion runtime — the baseline behind the DiffusionRuntime ABC.
 
-Uses the FLUX.2-klein native `image=` edit/reference path, which (per the Phase-0/1 gates)
-restyles while strongly preserving input structure. This is the correctness + latency-floor
-baseline; taef2, prompt-embedding caching, and compilation are layered on in later phases.
+Two restyle modes, both validated on the A6000 (each a distinct cadence×quality×control point):
 
-Notes on the two control axes for the DISTILLED klein-4B (empirically verified):
-  - guidance_scale is IGNORED, so text_magnitude is applied via prompt-embedding interpolation.
-  - there is no `strength` param, so ref_strength is applied by blending the restyled result
-    back toward the input (a simple, robust v1 approximation of "follow the input more").
-Both are deliberately simple here; Phase-3 tunes them against the harness + by eye.
+  mode="edit" (default): FLUX.2-klein native `image=` reference path. STRONG structure
+    preservation + strong style, but ~1032 ms @512² (reference tokens are concatenated,
+    ~doubling the sequence). ref_strength approximated by blending the result toward the input.
+
+  mode="img2img": classic flow-matching loop (encode -> noise@strength -> denoise SAME tokens,
+    no concat). ~600 ms @512² (~40% faster) and a REAL ref_strength knob via denoise strength,
+    but high stylization loses input structure (the design §7.2 classic-img2img weakness).
+
+For the DISTILLED klein-4B: guidance_scale is IGNORED; text influence comes from the prompt
+embeddings (cached via encode_prompt). Both paths use the same cached embeddings.
 """
 from __future__ import annotations
 
@@ -33,12 +36,14 @@ def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
 class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
                  dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True,
-                 compile_transformer: bool = False, quant: str | None = None):
+                 compile_transformer: bool = False, quant: str | None = None,
+                 mode: str = "edit"):
         from diffusers import Flux2KleinPipeline
         self.device = device
+        self.dtype = dtype
         self.cache_prompt = cache_prompt
+        self.mode = mode
         if quant in ("8bit", "4bit"):
-            # Path B′ of the bake-off: bitsandbytes quantize the transformer (Ampere-native).
             from diffusers import BitsAndBytesConfig, Flux2Transformer2DModel
             if quant == "8bit":
                 qc = BitsAndBytesConfig(load_in_8bit=True)
@@ -49,25 +54,31 @@ class EagerRuntime(DiffusionRuntime):
                 model_dir, subfolder="transformer", quantization_config=qc, torch_dtype=dtype)
             self.pipe = Flux2KleinPipeline.from_pretrained(
                 model_dir, transformer=transformer, torch_dtype=dtype)
-            self.pipe.to(device)   # moves the non-quantized components (vae, text encoder)
+            self.pipe.to(device)
         else:
             self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
         self.pipe.set_progress_bar_config(disable=True)
         if compile_transformer:
-            # Path C of the Phase-4 bake-off: torch.compile the transformer forward.
             self.pipe.transformer = torch.compile(self.pipe.transformer, mode="default")
         self._prompt = ""
-        self._prompt_embeds = None   # cached Qwen3 embeddings (design §4.4)
+        self._prompt_embeds = None
+        self._text_ids = None
 
     def set_prompt(self, prompt: str) -> None:
         self._prompt = prompt
         if self.cache_prompt:
-            # Encode once; recompute only on prompt change (skips Qwen3-4B per frame).
             with torch.no_grad():
-                embeds, _ = self.pipe.encode_prompt(prompt, device=self.device, max_sequence_length=512)
-            self._prompt_embeds = embeds
+                embeds, text_ids = self.pipe.encode_prompt(prompt, device=self.device, max_sequence_length=512)
+            self._prompt_embeds, self._text_ids = embeds, text_ids
 
+    @torch.no_grad()
     def restyle(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
+        if self.mode == "img2img":
+            return self._restyle_img2img(image_bchw, params)
+        return self._restyle_edit(image_bchw, params)
+
+    # --- mode="edit": native image= reference path -------------------------------------------
+    def _restyle_edit(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
         h, w = image_bchw.shape[-2], image_bchw.shape[-1]
         src = _to_pil(image_bchw)
         kwargs = (
@@ -76,16 +87,10 @@ class EagerRuntime(DiffusionRuntime):
             else {"prompt": self._prompt}
         )
         out_pil = self.pipe(
-            image=src,
-            height=h,
-            width=w,
-            num_inference_steps=params.steps,
-            generator=torch.Generator(self.device).manual_seed(params.seed),
-            **kwargs,
+            image=src, height=h, width=w, num_inference_steps=params.steps,
+            generator=torch.Generator(self.device).manual_seed(params.seed), **kwargs,
         ).images[0]
         out = _to_bchw(out_pil, self.device)
-        # ref_strength approximation: blend restyled result back toward the input.
-        # denoise_strength in [0,1]; higher => more of the restyle, less of the input.
         a = float(max(0.0, min(1.0, params.denoise_strength)))
         if a < 1.0:
             src_t = image_bchw.to(out.dtype).to(self.device)
@@ -93,3 +98,49 @@ class EagerRuntime(DiffusionRuntime):
                 src_t = torch.nn.functional.interpolate(src_t, size=(out.shape[-2], out.shape[-1]))
             out = a * out + (1.0 - a) * src_t
         return out.clamp(0, 1)
+
+    # --- mode="img2img": classic flow-matching loop, no reference concat ----------------------
+    def _restyle_img2img(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
+        from diffusers.pipelines.flux2.pipeline_flux2_klein import retrieve_timesteps, compute_empirical_mu
+        p = self.pipe
+        h, w = image_bchw.shape[-2], image_bchw.shape[-1]
+        img_m1p1 = (image_bchw.to(self.device, self.dtype) * 2 - 1)
+        lat = p._encode_vae_image(img_m1p1, generator=torch.Generator(self.device).manual_seed(params.seed))
+        ids = p._prepare_latent_ids(lat).to(self.device)
+        packed = p._pack_latents(lat)
+
+        steps = params.steps
+        sigmas = np.linspace(1.0, 1 / steps, steps)
+        if getattr(p.scheduler.config, "use_flow_sigmas", False):
+            sigmas = None
+        mu = compute_empirical_mu(image_seq_len=packed.shape[1], num_steps=steps)
+        timesteps, steps = retrieve_timesteps(p.scheduler, steps, self.device, sigmas=sigmas, mu=mu)
+        init = min(int(steps * params.denoise_strength), steps)
+        t_start = max(steps - init, 0)
+        timesteps = timesteps[t_start:]
+        p.scheduler.set_begin_index(t_start)
+
+        noise = torch.randn(packed.shape, generator=torch.Generator(self.device).manual_seed(params.seed),
+                            device=self.device, dtype=packed.dtype)
+        latents = p.scheduler.scale_noise(packed, timesteps[:1], noise).to(p.transformer.dtype)
+        embeds = self._prompt_embeds if self._prompt_embeds is not None else \
+            p.encode_prompt(self._prompt, device=self.device)[0]
+        text_ids = self._text_ids if self._text_ids is not None else \
+            p.encode_prompt(self._prompt, device=self.device)[1]
+        for t in timesteps:
+            ts = t.expand(latents.shape[0]).to(latents.dtype) / 1000
+            noise_pred = p.transformer(
+                hidden_states=latents, timestep=ts, guidance=None,
+                encoder_hidden_states=embeds, txt_ids=text_ids, img_ids=ids, return_dict=False,
+            )[0]
+            latents = p.scheduler.step(noise_pred, t, latents, return_dict=False)[0]
+
+        lh = 2 * (h // (p.vae_scale_factor * 2))
+        lw = 2 * (w // (p.vae_scale_factor * 2))
+        lat = p._unpack_latents_with_ids(latents, ids, lh // 2, lw // 2)
+        mean = p.vae.bn.running_mean.view(1, -1, 1, 1).to(lat.device, lat.dtype)
+        std = torch.sqrt(p.vae.bn.running_var.view(1, -1, 1, 1) + p.vae.config.batch_norm_eps).to(lat.device, lat.dtype)
+        lat = lat * std + mean
+        lat = p._unpatchify_latents(lat)
+        img = p.vae.decode(lat, return_dict=False)[0]
+        return p.image_processor.postprocess(img, output_type="pt")[0].unsqueeze(0).to(self.device).clamp(0, 1)

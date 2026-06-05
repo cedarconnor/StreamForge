@@ -22,6 +22,9 @@ def _build_runtime(name: str):
     if name in ("eager-8bit", "eager-4bit"):
         from streamforge.diffusion.runtime_eager import EagerRuntime
         return EagerRuntime(quant=name.split("-")[1])
+    if name == "eager-img2img":
+        from streamforge.diffusion.runtime_eager import EagerRuntime
+        return EagerRuntime(mode="img2img")
     raise SystemExit(f"unknown runtime {name!r}")
 
 
