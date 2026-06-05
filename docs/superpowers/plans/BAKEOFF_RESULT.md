@@ -20,6 +20,22 @@ reference concat), validated by a 1.2/255 encode→decode roundtrip.
   (loses structure — the §7.2 classic weakness). Edit path keeps structure+style but costs 3×.
 - **Recommendation:** ship BOTH modes; pick per show (edit = structure-critical; img2img = cadence-critical).
 
+## Triton-Windows + compile + INT8/TorchAO (2026-06-05, user-suggested leads)
+- **triton-windows 3.6.0** (`pip install "triton-windows<3.7"`) **unblocks torch.compile** on
+  this stack (torch 2.11+cu128, Py3.11). "torch.compile just works."
+- **bf16 + torch.compile (edit):** steady-state p50 **864 ms** (vs 1049, ~18%). Works cleanly
+  (first 1-2 frames pay the one-time compile). VRAM 16.7 GB.
+- **INT8 W8A8 dynamic (TorchAO):** ERRORS — `self.size(0) needs to be > 16` (the adaLN/modulation
+  linears have M=1; the dynamic-activation kernel rejects them).
+- **INT8 weight-only (TorchAO) + compile:** **pathological recompilation** — p50 120 s/frame
+  (recompiles ~every frame; torchao tensor-subclass guards fail under dynamo). VRAM 12.8 GB.
+  Not usable as-is; needs torch._dynamo recompile tuning (cache_size_limit, mark_dynamic, or the
+  torchao-recommended compile mode) — a separate focused effort.
+- **vistralis/FLUX.2-klein-4b-INT8-transformer** = ModelOpt INT8 W8A8 as TorchAO safetensors;
+  its 2.5× (5090: 1.77→0.72 s) is **with torch.compile** — i.e. it would hit the same Windows
+  recompilation issue unless tuned. Same class of problem as above.
+- **TensorRT (#4712):** unanswered roadmap request → no native FLUX.2-klein TensorRT yet.
+
 ## Conclusions
 1. **Quantization (bitsandbytes) is the wrong tool for cadence here.** It reduces VRAM (which
    was never the constraint — 16.7/48 GB) at a latency *cost*. Not a speed win.
@@ -38,3 +54,19 @@ reference concat), validated by a 1.2/255 encode→decode roundtrip.
   **Linux/WSL** to unlock Triton-based INT4 (Nunchaku/SDNQ) + torch.compile. This is a
   deployment-environment decision (design §5.1.1 / risk #2,#3,#5) — record it before Phase 4 final.
 - bitsandbytes stays useful only if a future larger model needs the VRAM headroom.
+
+## FINAL BOTTOM LINE (2026-06-05)
+Per-frame latency @512² (lower = better):
+| Config | infer p50 | Status |
+|---|---|---|
+| edit, bf16 | 1049 ms | baseline, robust |
+| edit, bf16, compile | 864 ms | works (~18%) |
+| **img2img, bf16** | **358 ms** | **robust 2.9× win — production-ready now** |
+| edit/img2img, int8+compile | (120 s recompiling) | promising but needs dynamo recompile tuning |
+
+**Production cadence path on Windows today = the classic img2img mode (358 ms, ~2.8 fps).**
+With the output clock decoupled, that already drives a stable 30/50 fps to the media server.
+**Next perf step (optional):** resolve the int8+compile recompilation (the vistralis/TorchAO
+2.5× path) — likely `torch._dynamo.config.cache_size_limit` + `mark_static`/`dynamic=False`, or
+run the AI box under **WSL/Linux** where the torchao+compile recipe is well-trodden. Combining
+img2img + a working int8+compile would target ~150 ms (~6-7 fps real AI) before any TensorRT.

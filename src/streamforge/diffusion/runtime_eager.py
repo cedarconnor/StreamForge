@@ -57,6 +57,12 @@ class EagerRuntime(DiffusionRuntime):
             self.pipe.to(device)
         else:
             self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
+            if quant == "int8ao":
+                # TorchAO INT8 weight-only + torch.compile (fused dequant+matmul, needs Triton).
+                # Weight-only avoids the W8A8 dynamic-activation kernel's M>16 constraint, which
+                # the transformer's small adaLN/modulation linears (M=1) violate.
+                from torchao.quantization import quantize_, Int8WeightOnlyConfig
+                quantize_(self.pipe.transformer, Int8WeightOnlyConfig())
         self.pipe.set_progress_bar_config(disable=True)
         if compile_transformer:
             self.pipe.transformer = torch.compile(self.pipe.transformer, mode="default")
