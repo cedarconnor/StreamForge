@@ -47,7 +47,20 @@
 - [x] Task 2.4 eager baseline (512²): infer p50/p95/p99 = 1195/1219/1486 ms (~0.8 fps),
       VRAM 16.7 GB. Includes per-frame Qwen3 re-encode (no cache) + full VAE. Standalone
       single-encode denoise was ~0.75s/4steps -> prompt-cache+taef2 (Phase 3) is the big win.
-- [ ] Task 3.2 MVP floor (taef2+caches, 512²): infer p95=__ ms, prompt-swap latency=__ ms.
+- [x] Task 3.x prompt cache (512²): p50 1195 -> 1049 ms (~12%; transformer dominates, not text encode).
+
+## ⚠ Profiling overturns the design §4.3 taef2 assumption (2026-06-05)
+`scripts/profile_pipeline.py` @512²:
+  VAE encode 27ms + decode 51ms = ~79ms (**only ~8%** of the 1032ms restyle).
+  Transformer 4-step (txt2img) = 601ms. image= restyle = 1032ms.
+  **Reference-token overhead = 431ms** (image= concatenates reference tokens, ~doubling seq len).
+Implications:
+  - **taef2 is NOT worth integrating** for this model/path — saves <~60ms (~2%). Design §4.3
+    ("full VAE decode is a disproportionate share") is FALSE here. Phase-3 taef2 DEFERRED with evidence.
+  - Per-frame budget is **transformer-bound** => the real cadence lever is Phase 4 (quantize/compile).
+  - The image= edit path costs ~72% more than txt2img. A classic img2img mode (encode->noise@strength
+    ->denoise SAME tokens, no concat) would cut ~431ms AND provide the real ref_strength knob, at some
+    structure-adherence cost. Worth prototyping as an alternate runtime / Phase-4 input.
 - [ ] Task 1.3 structure adherence: edge-IoU PRESERVE/SUBTLE/BALANCED/FOLLOW/FORCE = __.
 
 ## Nunchaku / Path B

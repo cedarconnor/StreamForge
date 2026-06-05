@@ -32,26 +32,38 @@ def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
 
 class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
-                 dtype: torch.dtype = torch.bfloat16):
+                 dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True):
         from diffusers import Flux2KleinPipeline
         self.device = device
+        self.cache_prompt = cache_prompt
         self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
         self.pipe.set_progress_bar_config(disable=True)
         self._prompt = ""
+        self._prompt_embeds = None   # cached Qwen3 embeddings (design §4.4)
 
     def set_prompt(self, prompt: str) -> None:
         self._prompt = prompt
+        if self.cache_prompt:
+            # Encode once; recompute only on prompt change (skips Qwen3-4B per frame).
+            with torch.no_grad():
+                embeds, _ = self.pipe.encode_prompt(prompt, device=self.device, max_sequence_length=512)
+            self._prompt_embeds = embeds
 
     def restyle(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
         h, w = image_bchw.shape[-2], image_bchw.shape[-1]
         src = _to_pil(image_bchw)
+        kwargs = (
+            {"prompt_embeds": self._prompt_embeds}
+            if self.cache_prompt and self._prompt_embeds is not None
+            else {"prompt": self._prompt}
+        )
         out_pil = self.pipe(
             image=src,
-            prompt=self._prompt,
             height=h,
             width=w,
             num_inference_steps=params.steps,
             generator=torch.Generator(self.device).manual_seed(params.seed),
+            **kwargs,
         ).images[0]
         out = _to_bchw(out_pil, self.device)
         # ref_strength approximation: blend restyled result back toward the input.
