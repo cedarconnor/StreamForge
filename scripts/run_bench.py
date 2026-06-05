@@ -19,6 +19,9 @@ def _build_runtime(name: str):
     if name == "eager-compile":
         from streamforge.diffusion.runtime_eager import EagerRuntime
         return EagerRuntime(compile_transformer=True)
+    if name in ("eager-8bit", "eager-4bit"):
+        from streamforge.diffusion.runtime_eager import EagerRuntime
+        return EagerRuntime(quant=name.split("-")[1])
     raise SystemExit(f"unknown runtime {name!r}")
 
 

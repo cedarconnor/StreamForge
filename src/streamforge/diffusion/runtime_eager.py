@@ -33,11 +33,25 @@ def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
 class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
                  dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True,
-                 compile_transformer: bool = False):
+                 compile_transformer: bool = False, quant: str | None = None):
         from diffusers import Flux2KleinPipeline
         self.device = device
         self.cache_prompt = cache_prompt
-        self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
+        if quant in ("8bit", "4bit"):
+            # Path B′ of the bake-off: bitsandbytes quantize the transformer (Ampere-native).
+            from diffusers import BitsAndBytesConfig, Flux2Transformer2DModel
+            if quant == "8bit":
+                qc = BitsAndBytesConfig(load_in_8bit=True)
+            else:
+                qc = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
+                                        bnb_4bit_compute_dtype=dtype)
+            transformer = Flux2Transformer2DModel.from_pretrained(
+                model_dir, subfolder="transformer", quantization_config=qc, torch_dtype=dtype)
+            self.pipe = Flux2KleinPipeline.from_pretrained(
+                model_dir, transformer=transformer, torch_dtype=dtype)
+            self.pipe.to(device)   # moves the non-quantized components (vae, text encoder)
+        else:
+            self.pipe = Flux2KleinPipeline.from_pretrained(model_dir, torch_dtype=dtype).to(device)
         self.pipe.set_progress_bar_config(disable=True)
         if compile_transformer:
             # Path C of the Phase-4 bake-off: torch.compile the transformer forward.
