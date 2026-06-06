@@ -35,6 +35,9 @@ def build_sink(name: str, flip: bool):
     if name == "spout":
         from streamforge.sinks.spout_sink import SpoutSink
         return SpoutSink(flip=flip)
+    if name == "ndi":
+        from streamforge.sinks.ndi_sink import NDISink
+        return NDISink()
     raise SystemExit(f"unknown sink {name!r}")
 
 
@@ -53,7 +56,7 @@ def main() -> None:
     ap.add_argument("--fps", type=int, default=30)
     ap.add_argument("--seconds", type=float, default=30.0)
     ap.add_argument("--res", type=int, default=512)
-    ap.add_argument("--sink", choices=["null", "spout"], default="spout")
+    ap.add_argument("--sink", choices=["null", "spout", "ndi"], default="spout")
     ap.add_argument("--color", choices=["full", "legal", "off"], default="full")
     ap.add_argument("--no-flip", action="store_true", help="disable Spout vertical flip")
     ap.add_argument("--test-pattern", action="store_true")
