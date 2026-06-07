@@ -66,18 +66,32 @@ def select_fill(ai: Any, warped: Any, held: Any, raw: Any) -> FillResult:
 class RealtimeClock:
     """Emits one frame per tick at the target cadence; counts repeats (no fresh AI frame)."""
 
-    def __init__(self, fps: int, frame_buffer: FrameBuffer, emit: Callable[[Any], None]):
+    def __init__(self, fps: int, frame_buffer: FrameBuffer, emit: Callable[[Any], None],
+                 filler: Any = None):
         self.period = 1.0 / fps
         self.fb = frame_buffer
         self.emit = emit
+        self.filler = filler
         self.repeat_count = 0
+        self.filled_count = 0
+        self._held: Any = None
         self._running = False
 
     def _tick_once(self) -> None:
+        now = time.perf_counter()
         fr = self.fb.get_with_freshness()
-        if not fr.is_fresh:
-            self.repeat_count += 1
-        self.emit(fr.value)
+        if fr.is_fresh and fr.value is not None:
+            self._held = fr.value
+            self.emit(fr.value)
+            return
+        self.repeat_count += 1
+        warped_t = self.filler.fill(now) if self.filler is not None else None
+        warped = (self._held.with_tensor(warped_t)
+                  if warped_t is not None and self._held is not None else None)
+        result = select_fill(ai=None, warped=warped, held=self._held, raw=None)
+        if result.source == "warped":
+            self.filled_count += 1
+        self.emit(result.value)
 
     def run_for_ticks(self, n: int) -> None:
         """Synchronous test mode: n ticks, no real sleeping."""

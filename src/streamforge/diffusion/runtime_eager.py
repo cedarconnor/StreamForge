@@ -37,12 +37,17 @@ class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
                  dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True,
                  compile_transformer: bool = False, quant: str | None = None,
-                 mode: str = "edit"):
+                 mode: str = "edit", internal_hw: tuple[int, int] | None = None,
+                 compile_mode: str = "default", tiny_vae: bool = False):
         from diffusers import Flux2KleinPipeline
         self.device = device
         self.dtype = dtype
         self.cache_prompt = cache_prompt
         self.mode = mode
+        # Run diffusion at a low INTERNAL resolution (snapped to /16 for FLUX latent packing),
+        # then upscale the result back to the source frame's size. Biggest Windows-native speed
+        # lever: 384x224 ~3x faster than 512² (Track-A perf finding). None = native source res.
+        self.internal_hw = self._snap_hw(internal_hw) if internal_hw else None
         if quant in ("8bit", "4bit"):
             from diffusers import BitsAndBytesConfig, Flux2Transformer2DModel
             if quant == "8bit":
@@ -63,9 +68,17 @@ class EagerRuntime(DiffusionRuntime):
                 # the transformer's small adaLN/modulation linears (M=1) violate.
                 from torchao.quantization import quantize_, Int8WeightOnlyConfig
                 quantize_(self.pipe.transformer, Int8WeightOnlyConfig())
+        if tiny_vae:
+            # Swap the full FLUX.2 VAE for taef2. vae_scale_factor (already cached, =8) is unchanged
+            # since taef2 also downsamples 8x; the wrapper's identity bn keeps the latent math valid.
+            from streamforge.diffusion.tiny_vae import build_taef2
+            self.pipe.vae = build_taef2(device=device, dtype=dtype)
         self.pipe.set_progress_bar_config(disable=True)
         if compile_transformer:
-            self.pipe.transformer = torch.compile(self.pipe.transformer, mode="default")
+            # mode="reduce-overhead" => Inductor cudagraph-trees: the transformer's kernel-launch
+            # sequence is captured once (static shape, needs a few warmup iters) and replayed as a
+            # single launch, killing the per-kernel Python/launch overhead in the fixed floor.
+            self.pipe.transformer = torch.compile(self.pipe.transformer, mode=compile_mode)
         self._prompt = ""
         self._prompt_embeds = None
         self._text_ids = None
@@ -77,8 +90,27 @@ class EagerRuntime(DiffusionRuntime):
                 embeds, text_ids = self.pipe.encode_prompt(prompt, device=self.device, max_sequence_length=512)
             self._prompt_embeds, self._text_ids = embeds, text_ids
 
+    @staticmethod
+    def _snap_hw(hw: tuple[int, int]) -> tuple[int, int]:
+        h, w = hw
+        return (max(16, round(h / 16) * 16), max(16, round(w / 16) * 16))
+
     @torch.no_grad()
     def restyle(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
+        # Downscale to internal diffusion res (if set), restyle, upscale back to source size.
+        if self.internal_hw is not None:
+            out_h, out_w = image_bchw.shape[-2], image_bchw.shape[-1]
+            ih, iw = self.internal_hw
+            if (ih, iw) != (out_h, out_w):
+                small = torch.nn.functional.interpolate(
+                    image_bchw.to(self.device), size=(ih, iw),
+                    mode="bilinear", align_corners=False, antialias=True)
+                styled = self._dispatch(small, params)
+                return torch.nn.functional.interpolate(
+                    styled, size=(out_h, out_w), mode="bilinear", align_corners=False)
+        return self._dispatch(image_bchw, params)
+
+    def _dispatch(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
         if self.mode == "img2img":
             return self._restyle_img2img(image_bchw, params)
         return self._restyle_edit(image_bchw, params)
