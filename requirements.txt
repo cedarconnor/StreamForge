@@ -11,3 +11,6 @@ numpy
 pillow
 opencv-python
 pytest
+fastapi
+uvicorn
+httpx
