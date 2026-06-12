@@ -16,14 +16,11 @@ Examples:
 from __future__ import annotations
 
 import argparse
-import threading
 import time
 
 import torch
 
-from streamforge.clock import FrameBuffer, RealtimeClock
 from streamforge.color import ColorPipeline, make_test_pattern
-from streamforge.control import TwoAxisControl
 from streamforge.frame import GpuFrame
 from streamforge.metrics import jitter_ms
 
@@ -39,16 +36,6 @@ def build_sink(name: str, flip: bool):
         from streamforge.sinks.ndi_sink import NDISink
         return NDISink()
     raise SystemExit(f"unknown sink {name!r}")
-
-
-def build_source(name: str, clip: str, res: int, fps: int):
-    if name == "synthetic":
-        from streamforge.sources.synthetic import SyntheticSource
-        return SyntheticSource(res, res, fps)
-    if name == "file":
-        from streamforge.sources.file_source import FileSource
-        return FileSource(clip, fps)
-    raise SystemExit(f"unknown source {name!r}")
 
 
 def main() -> None:
@@ -80,20 +67,20 @@ def main() -> None:
                     help="flow-res longest side for RAFT (smaller = faster)")
     args = ap.parse_args()
 
-    dev = "cuda" if torch.cuda.is_available() else "cpu"
-    color = None if args.color == "off" else ColorPipeline(range_mode=args.color)
-    sink = build_sink(args.sink, flip=not args.no_flip)
-    sink.open()
-    timestamps: list[float] = []
-
-    def emit(frame) -> None:
-        if frame is not None and color is not None:
-            frame = frame.with_tensor(color.apply(frame.tensor))
-        sink.send(frame)
-        timestamps.append(time.perf_counter())
-
     # --- test-pattern mode: no AI, just color + sink (design §8.6) -------------------------
     if args.test_pattern:
+        dev = "cuda" if torch.cuda.is_available() else "cpu"
+        color = None if args.color == "off" else ColorPipeline(range_mode=args.color)
+        sink = build_sink(args.sink, flip=not args.no_flip)
+        sink.open()
+        timestamps: list[float] = []
+
+        def emit(frame) -> None:
+            if frame is not None and color is not None:
+                frame = frame.with_tensor(color.apply(frame.tensor))
+            sink.send(frame)
+            timestamps.append(time.perf_counter())
+
         patt = make_test_pattern(args.res, args.res).to(dev)
         gf = GpuFrame(tensor=patt, seq=0, pts=0.0, width=args.res, height=args.res)
         print(f"TEST PATTERN -> sink={args.sink} color={args.color} flip={not args.no_flip} "
@@ -112,46 +99,43 @@ def main() -> None:
         return
 
     # --- live restyle: source -> worker(runtime) -> framebuffer -> clock -> color -> sink --
-    from streamforge.diffusion.runtime_eager import EagerRuntime
-    from streamforge.worker import InferenceWorker
+    from streamforge.runner import RunnerConfig, StreamForgeRunner
 
-    source = build_source(args.source, args.clip, args.res, args.fps)
-    internal_hw = None
-    if args.in_res.lower() not in ("off", "native", ""):
-        w_i, h_i = (int(v) for v in args.in_res.lower().split("x"))
-        internal_hw = (h_i, w_i)  # runtime takes (h, w)
-    runtime = EagerRuntime(mode=args.mode, internal_hw=internal_hw,
-                           compile_transformer=args.compile, tiny_vae=args.tiny_vae)
-    runtime.set_prompt(args.prompt)
-    params = TwoAxisControl.preset(args.preset).to_engine_params()
-    fb = FrameBuffer()
-    flow = filler = None
-    if args.fill == "warp":
-        from streamforge.fill.filler import FrameFiller
-        try:
-            from streamforge.fill.flow import RaftFlow
-            flow = RaftFlow(device=dev, max_side=args.flow_max_side)
-            filler = FrameFiller(max_extrap_ms=args.max_extrap_ms)
-            print(f"[fill] motion-extrapolation ON (max_extrap={args.max_extrap_ms}ms, "
-                  f"flow_max_side={args.flow_max_side})")
-        except Exception as e:
-            print(f"[fill] disabled (flow init failed): {e}")
-            flow = filler = None
-    worker = InferenceWorker(source, runtime, fb, params_provider=lambda: params,
-                             flow=flow, filler=filler)
-    clk = RealtimeClock(args.fps, fb, emit, filler=filler)
+    source_name = args.clip if args.source == "file" else str(args.res)
+    config = RunnerConfig(
+        source_type=args.source,
+        source_name=source_name,
+        sink=args.sink,
+        fps=args.fps,
+        prompt=args.prompt,
+        mode=args.mode,
+        preset=args.preset,
+        in_res=args.in_res,
+        color=args.color,
+        fill=args.fill,
+        max_extrap_ms=args.max_extrap_ms,
+        flow_max_side=args.flow_max_side,
+        compile_transformer=args.compile,
+        tiny_vae=args.tiny_vae,
+        spout_flip=not args.no_flip,
+    )
+    runner = StreamForgeRunner()
 
     print(f"LIVE: mode={args.mode} preset={args.preset} in_res={args.in_res} compile={args.compile} "
           f"-> sink={args.sink} @ {args.fps}fps for {args.seconds}s. "
           f"Watch the receiver for the restyled '{args.prompt}' layer.")
-    worker.start()
-    threading.Timer(args.seconds, clk.stop).start()
-    clk.run()
-    worker.stop()
-    sink.close()
-    fresh = len(timestamps) - clk.repeat_count
-    print(f"done: emitted={len(timestamps)} jitter={jitter_ms(timestamps):.2f}ms "
-          f"repeats={clk.repeat_count} filled={clk.filled_count} fresh_AI~={fresh} "
+    runner.start(config)
+    try:
+        time.sleep(args.seconds)
+        status = runner.status()
+    finally:
+        runner.stop()
+    emitted = int(status["emitted"])
+    repeats = int(status["repeats"])
+    filled = int(status["filled"])
+    fresh = int(status["fresh_ai"])
+    print(f"done: emitted={emitted} jitter={status['jitter_ms']:.2f}ms "
+          f"repeats={repeats} filled={filled} fresh_AI~={fresh} "
           f"(AI~={fresh/args.seconds:.1f}fps)")
 
 
