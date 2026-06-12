@@ -26,7 +26,7 @@
           <option value="auto">Auto preserve</option>
           <option value="native">Native</option>
           <option value="384x288">4:3 384x288</option>
-          <option value="384x224">16:9 384x224 crop</option>
+          <option value="512x288">16:9 512x288 crop</option>
         </select>
       </label>
       <label>Prompt
@@ -50,11 +50,11 @@
     <section class="previews">
       <div class="preview-card">
         <header><span>Input</span><b id="inputMeta">not validated</b></header>
-        <div class="preview-box"><img id="inputPreview" alt="Input preview"></div>
+        <div class="preview-box" id="inputBox"><img id="inputPreview" alt="Input preview"></div>
       </div>
       <div class="preview-card">
         <header><span>Output</span><b id="outputMeta">idle</b></header>
-        <div class="preview-box crop"><img id="outputPreview" alt="Output preview"></div>
+        <div class="preview-box" id="outputBox"><img id="outputPreview" alt="Output preview"></div>
       </div>
     </section>
     <aside class="health">

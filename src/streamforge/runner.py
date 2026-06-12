@@ -126,11 +126,18 @@ class StreamForgeRunner:
             with self._lock:
                 self._latest_input = frame
             source_size = Size(width=frame.width, height=frame.height)
-            internal = snap_to_multiple_for_aspect(source_size, max_side=384, multiple=16)
+            explicit_hw = _parse_internal_hw(config)
+            if explicit_hw is None:
+                internal = snap_to_multiple_for_aspect(source_size, max_side=384, multiple=16)
+            else:
+                explicit_h, explicit_w = explicit_hw
+                internal = Size(width=explicit_w, height=explicit_h)
             plan = plan_fit(source_size, internal, FitMode.FILL_CROP)
+            source_status = asdict(source.status())
+            source_status.update({"width": frame.width, "height": frame.height, "available": True})
             return {
                 "ok": True,
-                "source": asdict(source.status()),
+                "source": source_status,
                 "aspect": {
                     "source_ratio": source_size.aspect,
                     "internal": asdict(internal),

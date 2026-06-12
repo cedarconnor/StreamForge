@@ -64,6 +64,15 @@ def test_validate_reads_first_frame_and_returns_aspect():
     assert result["aspect"]["source_ratio"] == 1.5
 
 
+def test_validate_uses_explicit_internal_canvas_for_crop_plan():
+    runner = StreamForgeRunner(source_factory=lambda cfg: StubSource(),
+                               runtime_factory=lambda cfg: StubRuntime(),
+                               sink_factory=lambda cfg: StubSink())
+    result = runner.validate(RunnerConfig(source_type="webcam", source_name="0", in_res="16x16"))
+    assert result["aspect"]["internal"] == {"width": 16, "height": 16}
+    assert result["aspect"]["crop_direction"] == "sides"
+
+
 def test_start_status_stop_with_fake_runtime():
     sink = StubSink()
     runner = StreamForgeRunner(source_factory=lambda cfg: StubSource(),

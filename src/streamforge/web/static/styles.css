@@ -22,11 +22,14 @@ button:hover { border-color: var(--accent); }
 .previews { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
 .preview-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
 .preview-card header { display: flex; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
-.preview-box { aspect-ratio: 16 / 9; display: grid; place-items: center; background: #070809; position: relative; overflow: hidden; }
+.preview-box { aspect-ratio: var(--preview-ratio, 16 / 9); display: grid; place-items: center; background: #070809; position: relative; overflow: hidden; }
 .preview-box img { width: 100%; height: 100%; object-fit: cover; }
 .preview-box.crop::before, .preview-box.crop::after { content: ""; position: absolute; left: 0; right: 0; height: 18px; background: rgba(245, 186, 79, .25); pointer-events: none; }
 .preview-box.crop::before { top: 0; }
 .preview-box.crop::after { bottom: 0; }
+.preview-box.crop.sides::before, .preview-box.crop.sides::after { top: 0; bottom: 0; width: 18px; height: auto; right: auto; }
+.preview-box.crop.sides::before { left: 0; }
+.preview-box.crop.sides::after { left: auto; right: 0; }
 dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; }
 dt { color: var(--muted); }
 dd { margin: 0; text-align: right; }

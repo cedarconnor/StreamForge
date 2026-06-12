@@ -28,6 +28,15 @@ Headless checks (no window — saves one received frame):
 .\.venv\Scripts\python.exe scripts\ndi_receiver.py   --list
 ```
 
+## Web console validation
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe scripts\web.py
+```
+
+Open `http://127.0.0.1:8765`, choose an input, and click **Validate**. For the 640x480 test clip or a 4:3 webcam, `Auto preserve` should keep the validation preview at 4:3. When an explicit output canvas has a different ratio, the console should report crop metadata instead of stretching the frame.
+
 ## Live AI restyle to either output
 ```powershell
 # Spout, fast img2img mode, restyling the test clip

@@ -10,4 +10,7 @@ def test_operator_console_assets_exist_and_reference_api():
     assert "/api/validate" in js
     assert "/api/run/start" in js
     assert "/api/status" in js
+    assert "setPreviewAspect" in js
+    assert "setCropOverlay" in js
     assert "aspect-ratio" in css
+    assert "--preview-ratio" in css

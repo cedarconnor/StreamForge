@@ -17,6 +17,17 @@ function showMessage(value) {
     typeof value === "string" ? value : JSON.stringify(value, null, 2);
 }
 
+function setPreviewAspect(elementId, width, height) {
+  if (!width || !height) return;
+  document.getElementById(elementId).style.setProperty("--preview-ratio", `${width} / ${height}`);
+}
+
+function setCropOverlay(elementId, cropDirection) {
+  const box = document.getElementById(elementId);
+  box.classList.toggle("crop", cropDirection && cropDirection !== "none");
+  box.classList.toggle("sides", cropDirection === "sides");
+}
+
 async function postJson(url, body) {
   const res = await fetch(url, {
     method: "POST",
@@ -32,6 +43,13 @@ async function validate() {
   showMessage(data);
   if (data.ok && data.source) {
     document.getElementById("inputMeta").textContent = `${data.source.width}x${data.source.height}`;
+    setPreviewAspect("inputBox", data.source.width, data.source.height);
+  }
+  if (data.ok && data.aspect?.internal) {
+    const internal = data.aspect.internal;
+    document.getElementById("outputMeta").textContent = `${internal.width}x${internal.height}`;
+    setPreviewAspect("outputBox", internal.width, internal.height);
+    setCropOverlay("outputBox", data.aspect.crop_direction);
   }
 }
 

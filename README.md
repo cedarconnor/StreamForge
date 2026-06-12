@@ -16,4 +16,17 @@ pip install -r requirements.txt
 pytest -m "not gpu and not model"   # pure-logic suite, no GPU/weights needed
 ```
 
+## Operator Console
+
+Run the local web console:
+
+```powershell
+$env:PYTHONPATH = "src"
+.\.venv\Scripts\python.exe scripts\web.py
+```
+
+Open `http://127.0.0.1:8765`. The console validates webcam, NDI, Spout, file, and synthetic inputs before starting the live pipeline, then shows live input/output previews while the runner is active.
+
+StreamForge uses fit-fill-and-crop aspect handling instead of stretching frames. Use `Auto preserve` for source-ratio-safe internal dimensions, or choose an explicit canvas such as `16:9` or `1:1` when cropped output is intentional.
+
 Model weights live in `models/` (git-ignored). Run `python scripts/download_models.py` to fetch the pinned manifest and freeze exact revisions into `manifest.yaml`.
