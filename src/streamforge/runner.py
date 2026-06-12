@@ -15,6 +15,15 @@ from streamforge.metrics import jitter_ms
 from streamforge.worker import InferenceWorker
 
 
+def frame_to_jpeg(frame, quality: int = 80) -> bytes:
+    import io
+    from PIL import Image
+    arr = (frame.tensor[0].detach().clamp(0, 1).float().permute(1, 2, 0).cpu().numpy() * 255).astype("uint8")
+    buf = io.BytesIO()
+    Image.fromarray(arr).save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
 @dataclass(frozen=True)
 class RunnerConfig:
     source_type: str = "webcam"
@@ -214,3 +223,13 @@ class StreamForgeRunner:
             "filled": clock.filled_count if clock else 0,
             "fresh_ai": max(0, emitted - repeats),
         }
+
+    def latest_input_jpeg(self) -> bytes | None:
+        with self._lock:
+            frame = self._latest_input
+        return frame_to_jpeg(frame) if frame is not None else None
+
+    def latest_output_jpeg(self) -> bytes | None:
+        with self._lock:
+            frame = self._latest_output
+        return frame_to_jpeg(frame) if frame is not None else None

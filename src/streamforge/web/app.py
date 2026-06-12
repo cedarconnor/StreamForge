@@ -83,11 +83,17 @@ def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
 
     @app.get("/preview/input.jpg")
     def preview_input():
-        return Response(status_code=204)
+        data = app.state.runner.latest_input_jpeg()
+        if data is None:
+            return Response(status_code=204)
+        return Response(content=data, media_type="image/jpeg")
 
     @app.get("/preview/output.jpg")
     def preview_output():
-        return Response(status_code=204)
+        data = app.state.runner.latest_output_jpeg()
+        if data is None:
+            return Response(status_code=204)
+        return Response(content=data, media_type="image/jpeg")
 
     return app
 
