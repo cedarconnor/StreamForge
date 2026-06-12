@@ -45,6 +45,12 @@ class NDISink(Sink):
         h, w, _ = rgb.shape
         rgba = np.ascontiguousarray(np.dstack([rgb, np.full((h, w, 1), 255, np.uint8)]))
         self._vframe.data = rgba
+        self._vframe.xres = int(w)
+        self._vframe.yres = int(h)
+        self._vframe.line_stride_in_bytes = int(w * 4)
+        self._vframe.picture_aspect_ratio = float(w / h)
+        self._vframe.frame_rate_N = int(self.fps * 1000)
+        self._vframe.frame_rate_D = 1000
         self._vframe.FourCC = self._ndi.FOURCC_VIDEO_TYPE_RGBA
         self._ndi.send_send_video_v2(self._sender, self._vframe)
 
