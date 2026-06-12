@@ -19,6 +19,7 @@ import numpy as np
 import torch
 from PIL import Image
 
+from streamforge.aspect import FitMode, Size, fit_tensor
 from streamforge.control import EngineParams
 from streamforge.diffusion.runtime_base import DiffusionRuntime
 
@@ -48,6 +49,7 @@ class EagerRuntime(DiffusionRuntime):
         # then upscale the result back to the source frame's size. Biggest Windows-native speed
         # lever: 384x224 ~3x faster than 512² (Track-A perf finding). None = native source res.
         self.internal_hw = self._snap_hw(internal_hw) if internal_hw else None
+        self.fit_plan = None
         if quant in ("8bit", "4bit"):
             from diffusers import BitsAndBytesConfig, Flux2Transformer2DModel
             if quant == "8bit":
@@ -102,9 +104,13 @@ class EagerRuntime(DiffusionRuntime):
             out_h, out_w = image_bchw.shape[-2], image_bchw.shape[-1]
             ih, iw = self.internal_hw
             if (ih, iw) != (out_h, out_w):
-                small = torch.nn.functional.interpolate(
-                    image_bchw.to(self.device), size=(ih, iw),
-                    mode="bilinear", align_corners=False, antialias=True)
+                small, plan = fit_tensor(
+                    image_bchw.to(self.device),
+                    Size(width=iw, height=ih),
+                    FitMode.FILL_CROP,
+                    antialias=True,
+                )
+                self.fit_plan = plan
                 styled = self._dispatch(small, params)
                 return torch.nn.functional.interpolate(
                     styled, size=(out_h, out_w), mode="bilinear", align_corners=False)

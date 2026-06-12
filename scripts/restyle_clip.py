@@ -11,8 +11,9 @@ import pathlib
 import cv2
 import torch
 
-from streamforge.diffusion.runtime_eager import EagerRuntime
+from streamforge.aspect import FitMode, Size, fit_tensor, snap_to_multiple_for_aspect
 from streamforge.control import TwoAxisControl
+from streamforge.diffusion.runtime_eager import EagerRuntime
 
 CLIP = r"D:\StreamForge\TestFile\DriveVideo.mp4"
 OUT = pathlib.Path("out/clip")
@@ -20,7 +21,9 @@ OUT = pathlib.Path("out/clip")
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--res", type=int, default=512)
+    ap.add_argument("--max-side", type=int, default=512)
+    ap.add_argument("--target", default="source", choices=["source", "square", "16x9"],
+                    help="source preserves clip ratio; square/16x9 use fill-crop instead of stretch")
     ap.add_argument("--every", type=int, default=80, help="restyle 1 of every N frames")
     ap.add_argument("--count", type=int, default=5)
     ap.add_argument("--preset", default="BALANCED")
@@ -42,7 +45,15 @@ def main() -> None:
         if idx % args.every == 0:
             rgb = cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB)
             t = torch.from_numpy(rgb).permute(2, 0, 1)[None].float().div(255).cuda()
-            t = torch.nn.functional.interpolate(t, size=(args.res, args.res))
+            if args.target == "source":
+                target = snap_to_multiple_for_aspect(Size(width=t.shape[-1], height=t.shape[-2]), args.max_side)
+            elif args.target == "square":
+                target = Size(args.max_side, args.max_side)
+            else:
+                target = Size(args.max_side, round(args.max_side * 9 / 16))
+            t, plan = fit_tensor(t, target, FitMode.FILL_CROP)
+            print(f"frame {idx}: source={plan.source.width}x{plan.source.height} "
+                  f"target={plan.target.width}x{plan.target.height} crop={plan.crop_direction}")
             out = rt.restyle(t, params)
             src_np = (t[0].permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).astype("uint8")
             out_np = (out[0].permute(1, 2, 0).clamp(0, 1).cpu().numpy() * 255).astype("uint8")

@@ -38,6 +38,12 @@ def main() -> None:
     src.close()
     in_h, in_w = frame.tensor.shape[-2], frame.tensor.shape[-1]
     print(f"source frame: {in_w}x{in_h}")
+    source_ratio = in_w / in_h
+    internal_ratio = w_i / h_i
+    if abs(source_ratio - internal_ratio) > 0.01:
+        print(f"aspect policy: fill-crop source {in_w}x{in_h} into internal {w_i}x{h_i}")
+    else:
+        print(f"aspect policy: preserve source ratio at internal {w_i}x{h_i}")
 
     rt = EagerRuntime(mode="img2img", internal_hw=(h_i, w_i))
     rt.set_prompt(args.prompt)
