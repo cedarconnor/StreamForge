@@ -11,7 +11,7 @@
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, Segoe UI, Arial, sans-serif; }
 .console { min-height: 100vh; display: grid; grid-template-columns: 300px 1fr 280px; gap: 1px; background: var(--line); }
-.rail, .health, .previews { background: var(--bg); padding: 18px; }
+.rail, .health, .previews { background: var(--bg); padding: 18px; min-width: 0; }
 h1, h2 { margin: 0 0 16px; letter-spacing: 0; }
 label { display: grid; gap: 6px; margin-bottom: 12px; color: var(--muted); font-size: 12px; }
 input, select, textarea, button { width: 100%; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); padding: 9px; font: inherit; }
@@ -20,7 +20,7 @@ textarea { min-height: 84px; resize: vertical; }
 button { cursor: pointer; }
 button:hover { border-color: var(--accent); }
 .previews { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
-.preview-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.preview-card { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); overflow: hidden; min-width: 0; }
 .preview-card header { display: flex; justify-content: space-between; padding: 10px 12px; border-bottom: 1px solid var(--line); color: var(--muted); }
 .preview-box { aspect-ratio: var(--preview-ratio, 16 / 9); display: grid; place-items: center; background: #070809; position: relative; overflow: hidden; }
 .preview-box img { width: 100%; height: 100%; object-fit: cover; }
@@ -33,5 +33,5 @@ button:hover { border-color: var(--accent); }
 dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin: 0; }
 dt { color: var(--muted); }
 dd { margin: 0; text-align: right; }
-pre { white-space: pre-wrap; color: var(--warn); }
+pre { max-width: 100%; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--warn); }
 @media (max-width: 1050px) { .console { grid-template-columns: 1fr; } .previews { grid-template-columns: 1fr; } }

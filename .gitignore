@@ -16,6 +16,8 @@ out/
 # Local docs and sample media
 docs/
 TestFile/
+streamforge_design_v1.2.md
+PERFORMANCE_FINDINGS.md
 
 # Local visual planning scratch
 .superpowers/

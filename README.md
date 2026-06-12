@@ -1,8 +1,8 @@
 # StreamForge — Real-Time FLUX Live-Restyle Engine
 
-Self-hosted, commercially-clean real-time live-restyle engine: live video in → FLUX.2-klein-4B (Apache-2.0) img2img restyle → media server (Resolume) via Spout/NDI, on a single RTX A6000. A **sacred output clock** runs at show framerate while the AI cadence adapts underneath it.
+![StreamForge Operator Console](assets/operator-console.png)
 
-- Design: [`streamforge_design_v1.2.md`](streamforge_design_v1.2.md)
+Self-hosted, commercially-clean real-time live-restyle engine: live video in → FLUX.2-klein-4B (Apache-2.0) img2img restyle → media server (Resolume) via Spout/NDI, on a single RTX A6000. A **sacred output clock** runs at show framerate while the AI cadence adapts underneath it.
 
 ## Quick Start on Windows
 
@@ -42,6 +42,8 @@ $env:PYTHONPATH = "src"
 Open `http://127.0.0.1:8765`. The console validates webcam, NDI, Spout, file, and synthetic inputs before starting the live pipeline, then shows live input/output previews while the runner is active.
 
 StreamForge uses fit-fill-and-crop aspect handling instead of stretching frames. Use `Auto preserve` for source-ratio-safe internal dimensions, or choose an explicit canvas such as `16:9` or `1:1` when cropped output is intentional.
+
+![StreamForge aspect crop validation](assets/aspect-crop-validation.png)
 
 Model weights live in `models/` (git-ignored). Run `.\.venv\Scripts\python.exe scripts\download_models.py` or `install.bat --models` to fetch the pinned manifest and freeze exact revisions into `manifest.yaml`.
 
