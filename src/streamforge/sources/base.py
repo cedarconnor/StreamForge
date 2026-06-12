@@ -18,6 +18,17 @@ class Capabilities:
     has_depth: bool = False
 
 
+@dataclass(frozen=True)
+class SourceStatus:
+    name: str
+    width: int | None = None
+    height: int | None = None
+    fps: float | None = None
+    available: bool = False
+    last_frame_age_ms: float | None = None
+    error: str | None = None
+
+
 class Source(ABC):
     capabilities: Capabilities = Capabilities()
 
@@ -30,3 +41,6 @@ class Source(ABC):
 
     @abstractmethod
     def close(self) -> None: ...
+
+    def status(self) -> SourceStatus:
+        return SourceStatus(name=type(self).__name__, available=False)
