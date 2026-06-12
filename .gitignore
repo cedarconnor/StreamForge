@@ -13,6 +13,9 @@ models/
 # Rendered frames / benchmark reports
 out/
 
+# Local visual planning scratch
+.superpowers/
+
 # Large binaries
 *.safetensors
 *.engine
