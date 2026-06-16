@@ -34,6 +34,20 @@ def _to_bchw(pil: Image.Image, device: str) -> torch.Tensor:
     return torch.from_numpy(arr).permute(2, 0, 1)[None].to(device)
 
 
+def effective_embeds(prompt_embeds, neutral_embeds, tm: float):
+    """Lerp/extrapolate prompt embeddings toward neutral by text_magnitude `tm`.
+
+    tm == 1 -> plain prompt (no-op, regression-safe). tm == 0 -> neutral. tm > 1 -> exaggerate.
+    Falls back to the plain prompt embeds when neutral is missing or shapes don't match.
+    """
+    if prompt_embeds is None:
+        return None
+    if neutral_embeds is None or abs(tm - 1.0) < 1e-3 \
+            or neutral_embeds.shape != prompt_embeds.shape:
+        return prompt_embeds
+    return neutral_embeds + (prompt_embeds - neutral_embeds) * tm
+
+
 class EagerRuntime(DiffusionRuntime):
     def __init__(self, model_dir: str = "models/transformer", device: str = "cuda",
                  dtype: torch.dtype = torch.bfloat16, cache_prompt: bool = True,
@@ -83,6 +97,7 @@ class EagerRuntime(DiffusionRuntime):
             self.pipe.transformer = torch.compile(self.pipe.transformer, mode=compile_mode)
         self._prompt = ""
         self._prompt_embeds = None
+        self._neutral_embeds = None
         self._text_ids = None
 
     def set_prompt(self, prompt: str) -> None:
@@ -90,7 +105,15 @@ class EagerRuntime(DiffusionRuntime):
         if self.cache_prompt:
             with torch.no_grad():
                 embeds, text_ids = self.pipe.encode_prompt(prompt, device=self.device, max_sequence_length=512)
+                neutral, _ = self.pipe.encode_prompt("", device=self.device, max_sequence_length=512)
             self._prompt_embeds, self._text_ids = embeds, text_ids
+            self._neutral_embeds = neutral
+
+    def set_mode(self, mode: str) -> None:
+        self.mode = mode
+
+    def _effective_embeds(self, tm: float):
+        return effective_embeds(self._prompt_embeds, self._neutral_embeds, tm)
 
     @staticmethod
     def _snap_hw(hw: tuple[int, int]) -> tuple[int, int]:
@@ -125,9 +148,10 @@ class EagerRuntime(DiffusionRuntime):
     def _restyle_edit(self, image_bchw: torch.Tensor, params: EngineParams) -> torch.Tensor:
         h, w = image_bchw.shape[-2], image_bchw.shape[-1]
         src = _to_pil(image_bchw)
+        embeds = self._effective_embeds(params.text_magnitude)
         kwargs = (
-            {"prompt_embeds": self._prompt_embeds}
-            if self.cache_prompt and self._prompt_embeds is not None
+            {"prompt_embeds": embeds}
+            if self.cache_prompt and embeds is not None
             else {"prompt": self._prompt}
         )
         out_pil = self.pipe(
@@ -167,8 +191,9 @@ class EagerRuntime(DiffusionRuntime):
         noise = torch.randn(packed.shape, generator=torch.Generator(self.device).manual_seed(params.seed),
                             device=self.device, dtype=packed.dtype)
         latents = p.scheduler.scale_noise(packed, timesteps[:1], noise).to(p.transformer.dtype)
-        embeds = self._prompt_embeds if self._prompt_embeds is not None else \
-            p.encode_prompt(self._prompt, device=self.device)[0]
+        embeds = self._effective_embeds(params.text_magnitude)
+        if embeds is None:
+            embeds = p.encode_prompt(self._prompt, device=self.device)[0]
         text_ids = self._text_ids if self._text_ids is not None else \
             p.encode_prompt(self._prompt, device=self.device)[1]
         for t in timesteps:
