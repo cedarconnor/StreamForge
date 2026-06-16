@@ -1,0 +1,26 @@
+# SANA-Streaming backend — pinned artifacts (VERIFIED: Gate 3 + perf sweep, 2026-06-16).
+# SHAs are the exact snapshots tested on the A6000. Refresh with scripts/download_sana_models.py.
+sana_repo:
+  repo: Efficient-Large-Model/SANA-Streaming
+  revision: 534c946811822f70117b8549b7e072120a4414d2
+  dit: dit/sana_streaming_ar.pth          # ~4.52 GB, BF16
+text_encoder:
+  repo: Efficient-Large-Model/gemma-2-2b-it     # Sana mirror (ungated), resolved by builder.py
+  revision: 569d9809d0c8b6722d4d31b5a77a2ec7a400650a
+vae:
+  repo: Lightricks/LTX-2                   # loaded as AutoencoderKLCausalLTX2Video, subfolder vae
+  subfolder: vae
+  revision: 47da56e2ad66ce4125a9922b4a8826bf407f9d0a
+sana_code:
+  repo: https://github.com/NVlabs/Sana     # external/Sana reference checkout
+  revision: 51baa3c99acd1632ca8c4b2e45e893e8be08a819
+config: configs/sana_streaming/sana_streaming_2b_720p.yaml
+precision: bf16
+vae_stride: [8, 32, 32]                    # temporal, height, width -> dims: H/W %32, frames 8k+1
+defaults:
+  step: 4
+  cfg_scale: 1.0
+  num_cached_blocks: 2
+  sink_token: true
+  flow_shift: 8.0
+license: Apache-2.0
