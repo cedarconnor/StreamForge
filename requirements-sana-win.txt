@@ -1,0 +1,47 @@
+# SANA-Streaming — Windows-native inference environment (VERIFIED 2026-06-16, Gate 3 PASS)
+# RTX A6000 (sm_86), Python 3.11.9, torch 2.11.0+cu128. Built in an ISOLATED .venv-sana
+# (kept separate from the FLUX .venv so SANA's transformers/diffusers pins can't break it).
+#
+# This is an ORDERED RECIPE, not a flat `pip install -r` — several steps need special flags
+# (--index-url, --no-deps, --no-build-isolation). Run the numbered commands in order.
+#
+#   # 0. create the venv from the proven 3.11 interpreter (py -3.11 is the blocked Store stub):
+#   .\.venv\Scripts\python.exe -m venv .venv-sana
+#   .\.venv-sana\Scripts\python.exe -m pip install --upgrade pip wheel "setuptools<80"
+#
+#   # 1. torch FIRST, CUDA-matched (cu128), pinned to the proven-Triton stack:
+#   pip install torch==2.11.0 torchvision==0.26.0 --index-url https://download.pytorch.org/whl/cu128
+#
+#   # 2. matched Triton (woct0rdho fork; pin to the version proven on the A6000):
+#   pip install "triton-windows==3.6.0.post26"
+#
+#   # 3. SANA runtime deps (transformers PINNED to SANA's tested 4.57.3; latest 5.x breaks it):
+#   pip install "transformers==4.57.3" diffusers accelerate safetensors huggingface_hub \
+#       einops omegaconf pyrallis sentencepiece protobuf "imageio[ffmpeg]" opencv-python \
+#       numpy pillow pyyaml termcolor timm pytz qwen-vl-utils ftfy
+#
+#   # 4. fla — flash-linear-attention 0.5.0 SPLIT into two dists; BOTH provide the `fla` namespace.
+#   #    --no-deps so they don't pull upstream `triton` (no Windows wheel) over triton-windows:
+#   pip install flash-linear-attention --no-deps
+#   pip install fla-core --no-deps
+#
+#   # 5. mmcv 1.7.2 — PURE-PYTHON (1.x `mmcv` has no CUDA ops; only needs the Registry util).
+#   #    Builds from sdist, so needs wheel + setuptools<80 (installed in step 0):
+#   pip install --no-build-isolation "mmcv==1.7.2"
+#
+# RUNTIME (not pip): the streaming script imports top-level SANA packages and a Unix-only module.
+#   - PYTHONPATH must include the SANA repo root AND the shim dir:
+#       $env:PYTHONPATH = "D:\StreamForge\scripts\sana_shims;D:\StreamForge\external\Sana"
+#     (scripts/sana_shims/fcntl.py is a no-op stub for the Unix `fcntl` that builder.py drags in)
+#   - env: USE_CHUNKWISE_GDN=1 (fused GDN, default), DISABLE_FLASH_ATTN=1 (force SDPA path)
+#   - run from cwd = external/Sana (config paths are relative)
+#
+# Verified versions (pip freeze excerpt, .venv-sana, 2026-06-16):
+#   torch==2.11.0+cu128  torchvision==0.26.0+cu128  triton-windows==3.6.0.post26
+#   transformers==4.57.3  diffusers==0.38.0  accelerate  timm==1.0.27  mmcv==1.7.2
+#   flash-linear-attention==0.5.0  fla-core==0.5.0  qwen-vl-utils==0.0.14  av==17.1.0
+#   ftfy==6.3.1  pytz==2026.2
+#
+# EXCLUDED (training/eval/Linux-only, NOT needed for streaming inference):
+#   xformers, wandb, tensorboard, webdataset, gradio, image-reward, pytorch-fid,
+#   came-pytorch, bitsandbytes, deepspeed, flash-attn (SANA falls back to SDPA natively).
