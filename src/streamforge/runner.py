@@ -12,7 +12,9 @@ from streamforge.clock import FrameBuffer, RealtimeClock
 from streamforge.color import ColorPipeline
 from streamforge.control import EngineParams, TwoAxisControl
 from streamforge.metrics import jitter_ms
+from streamforge.sana_control import SanaControl, SanaLiveControl
 from streamforge.worker import InferenceWorker
+from streamforge.worker_temporal import QueueFrameBuffer, TemporalInferenceWorker
 
 
 def frame_to_jpeg(frame, quality: int = 80) -> bytes:
@@ -77,6 +79,9 @@ class RunnerConfig:
     compile_transformer: bool = False
     tiny_vae: bool = False
     spout_flip: bool = True
+    backend: str = "flux"            # "flux" (EagerRuntime) | "sana_streaming" (temporal)
+    cached_blocks: int = 2           # SANA: GDN/KV window
+    sink_token: bool = True          # SANA: attention-sink stability
 
 
 def default_source_factory(config: RunnerConfig):
@@ -107,13 +112,22 @@ def _parse_internal_hw(config: RunnerConfig) -> tuple[int, int] | None:
 
 
 def default_runtime_factory(config: RunnerConfig):
-    from streamforge.diffusion.runtime_eager import EagerRuntime
-    return EagerRuntime(
-        mode=config.mode,
-        internal_hw=_parse_internal_hw(config),
-        compile_transformer=config.compile_transformer,
-        tiny_vae=config.tiny_vae,
-    )
+    if config.backend == "sana_streaming":
+        from streamforge.diffusion.runtime_sana_streaming import SanaStreamingRuntime
+        return SanaStreamingRuntime(
+            internal_hw=_parse_internal_hw(config),
+            num_cached_blocks=config.cached_blocks,
+            sink_token=config.sink_token,
+        )
+    if config.backend == "flux":
+        from streamforge.diffusion.runtime_eager import EagerRuntime
+        return EagerRuntime(
+            mode=config.mode,
+            internal_hw=_parse_internal_hw(config),
+            compile_transformer=config.compile_transformer,
+            tiny_vae=config.tiny_vae,
+        )
+    raise ValueError(f"unknown backend {config.backend!r}")
 
 
 def default_sink_factory(config: RunnerConfig):
@@ -166,11 +180,18 @@ class StreamForgeRunner:
                 self._latest_input = frame
             source_size = Size(width=frame.width, height=frame.height)
             explicit_hw = _parse_internal_hw(config)
+            multiple = 32 if config.backend == "sana_streaming" else 16  # SANA VAE stride is 32
             if explicit_hw is None:
-                internal = snap_to_multiple_for_aspect(source_size, max_side=384, multiple=16)
+                internal = snap_to_multiple_for_aspect(source_size, max_side=384, multiple=multiple)
             else:
                 explicit_h, explicit_w = explicit_hw
                 internal = Size(width=explicit_w, height=explicit_h)
+            if config.backend == "sana_streaming":
+                from streamforge.diffusion.runtime_sana_streaming import validate_dims
+                try:
+                    validate_dims(internal.width, internal.height, 9)  # spatial check (frames at runtime)
+                except ValueError as e:
+                    return {"ok": False, "error": str(e), "source": asdict(source.status())}
             plan = plan_fit(source_size, internal, FitMode.FILL_CROP)
             source_status = asdict(source.status())
             source_status.update({"width": frame.width, "height": frame.height, "available": True})
@@ -194,11 +215,17 @@ class StreamForgeRunner:
         sink = self.sink_factory(config)
         sink.open()
         color = None if config.color == "off" else ColorPipeline(range_mode=config.color)
-        fb = FrameBuffer()
-        self._control = LiveControl(TwoAxisControl.preset(config.preset))
         self._runtime = runtime
         self._prompt = config.prompt
         self._mode = config.mode
+        temporal = getattr(runtime, "temporal", False)
+        if temporal:
+            sana_preset = config.preset if config.preset.startswith("SANA") else "SANA_BALANCED"
+            self._control = SanaLiveControl(SanaControl.preset(sana_preset))
+            fb = QueueFrameBuffer(maxlen=64)   # holds a couple of chunk bursts (~24 frames each)
+        else:
+            self._control = LiveControl(TwoAxisControl.preset(config.preset))
+            fb = FrameBuffer()
         filler = None
         flow = None
         if config.fill == "warp":
@@ -224,8 +251,12 @@ class StreamForgeRunner:
                 self._timestamps.append(time.perf_counter())
             sink.send(out)
 
-        worker = InferenceWorker(source, runtime, fb, params_provider=self._control.params,
-                                 on_timing=timing, flow=flow, filler=filler)
+        if temporal:
+            worker = TemporalInferenceWorker(source, runtime, fb, control=self._control,
+                                             on_timing=timing, flow=flow, filler=filler)
+        else:
+            worker = InferenceWorker(source, runtime, fb, params_provider=self._control.params,
+                                     on_timing=timing, flow=flow, filler=filler)
         clock = RealtimeClock(config.fps, fb, emit, filler=filler)
         self._worker = worker
         self._clock = clock
@@ -263,20 +294,35 @@ class StreamForgeRunner:
         d = self._control.as_dict()
         d["prompt"] = self._prompt
         d["mode"] = self._mode
+        d["backend"] = self._config.backend if self._config else "flux"
         return d
 
     def apply_control(self, *, ref_strength=None, text_magnitude=None, steps=None,
-                      seed=None, prompt=None, mode=None) -> dict:
+                      seed=None, prompt=None, mode=None, flow_shift=None, motion_score=None,
+                      num_cached_blocks=None, sink_token=None) -> dict:
         if self._control is None or self._runtime is None:
             return {}
-        self._control.apply(ref_strength=ref_strength, text_magnitude=text_magnitude,
-                            steps=steps, seed=seed)
-        if prompt is not None:
-            self._runtime.set_prompt(prompt)
-            self._prompt = prompt
-        if mode is not None:
-            self._runtime.set_mode(mode)
-            self._mode = mode
+        if getattr(self._runtime, "temporal", False):
+            # SANA: HOT knobs apply live; num_cached_blocks/sink_token are WARM (engine rebuilt on
+            # the worker's next reset_state, which reads these runtime attrs); prompt re-encodes.
+            if num_cached_blocks is not None:
+                self._runtime.num_cached_blocks = int(num_cached_blocks)
+            if sink_token is not None:
+                self._runtime.sink_token = bool(sink_token)
+            self._control.apply(step=steps, flow_shift=flow_shift, motion_score=motion_score,
+                                seed=seed, num_cached_blocks=num_cached_blocks, sink_token=sink_token)
+            if prompt is not None:
+                self._runtime.set_prompt(prompt)
+                self._prompt = prompt
+        else:
+            self._control.apply(ref_strength=ref_strength, text_magnitude=text_magnitude,
+                                steps=steps, seed=seed)
+            if prompt is not None:
+                self._runtime.set_prompt(prompt)
+                self._prompt = prompt
+            if mode is not None:
+                self._runtime.set_mode(mode)
+                self._mode = mode
         return self._control_snapshot() or {}
 
     def status(self) -> dict:

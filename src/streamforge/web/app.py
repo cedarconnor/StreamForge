@@ -29,6 +29,9 @@ class RunnerConfigIn(BaseModel):
     compile_transformer: bool = False
     tiny_vae: bool = False
     spout_flip: bool = True
+    backend: str = "flux"
+    cached_blocks: int = 2
+    sink_token: bool = True
 
     def to_config(self) -> RunnerConfig:
         allowed = {f.name for f in fields(RunnerConfig)}
@@ -43,6 +46,11 @@ class ControlIn(BaseModel):
     seed: int | None = None
     prompt: str | None = None
     mode: str | None = None
+    # SANA live knobs (ignored by the FLUX path)
+    flow_shift: float | None = None
+    motion_score: int | None = None
+    num_cached_blocks: int | None = None
+    sink_token: bool | None = None
 
 
 def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
