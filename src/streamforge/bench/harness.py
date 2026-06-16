@@ -57,6 +57,8 @@ class BenchHarness:
         self.budget_ms = 1000.0 / fps
 
     def run(self) -> BenchReport:
+        if getattr(self.runtime, "temporal", False):
+            return self._run_temporal()
         timers = {k: StageTimer() for k in ("read", "infer")}
         out_ts: list[float] = []
         misses = 0
@@ -94,4 +96,46 @@ class BenchHarness:
             missed_deadlines=misses,
             frame_repeats=repeats,
             frames=len(out_ts),
+        )
+
+    def _run_temporal(self) -> BenchReport:
+        """Bench a TemporalDiffusionRuntime: load once, feed frames, count drained outputs.
+        `infer` records per-chunk latency (only frames that produced output); `frames` is the
+        total emitted output frame count."""
+        timers = {k: StageTimer() for k in ("read", "infer")}
+        out_ts: list[float] = []
+        misses = 0
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+        self.source.open()
+        self.runtime.load_once()
+        self.runtime.set_prompt(self.prompt)
+        out_count = 0
+        for _ in range(self.frames):
+            t0 = _now_ms()
+            f = self.source.read()
+            timers["read"].add(_now_ms() - t0)
+            if f is None:
+                break
+            t1 = _now_ms()
+            outs = self.runtime.push_frame(f.tensor)
+            if torch.cuda.is_available():
+                torch.cuda.synchronize()
+            dt = _now_ms() - t1
+            if outs:
+                timers["infer"].add(dt)
+                if dt > self.budget_ms * len(outs):  # budget per emitted frame
+                    misses += 1
+                for _o in outs:
+                    out_count += 1
+                    out_ts.append(_now_ms() / 1000.0)
+        self.source.close()
+        vram = (torch.cuda.max_memory_allocated() / 1e9) if torch.cuda.is_available() else 0.0
+        return BenchReport(
+            stages={k: t.stats for k, t in timers.items()},
+            output_jitter_ms=jitter_ms(out_ts),
+            vram_peak_gb=round(vram, 2),
+            missed_deadlines=misses,
+            frame_repeats=0,
+            frames=out_count,
         )
