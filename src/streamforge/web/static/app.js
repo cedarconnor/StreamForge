@@ -8,7 +8,10 @@ function config() {
     sink: "null",
     mode: "img2img",
     fps: 30,
-    seconds: 0
+    seconds: 0,
+    backend: document.getElementById("backend").value,
+    cached_blocks: +document.getElementById("sCached").value,
+    sink_token: document.getElementById("sSink").checked
   };
 }
 
@@ -55,6 +58,19 @@ function denoiseFor(ref) {
 
 function seedControls(control) {
   if (!control) return;
+  if (control.backend === "sana_streaming") {
+    document.getElementById("sSteps").value = control.step;
+    document.getElementById("sFlow").value = control.flow_shift;
+    document.getElementById("sFlowVal").textContent = (+control.flow_shift).toFixed(1);
+    document.getElementById("sMotion").value = control.motion_score;
+    document.getElementById("sMotionVal").textContent = control.motion_score;
+    document.getElementById("sSeed").value = control.seed;
+    document.getElementById("sCached").value = control.num_cached_blocks;
+    document.getElementById("sCachedVal").textContent = control.num_cached_blocks;
+    document.getElementById("sSink").checked = control.sink_token;
+    if (control.prompt) document.getElementById("sPrompt").value = control.prompt;
+    return;
+  }
   const ref = document.getElementById("refStrength");
   ref.value = control.ref_strength;
   document.getElementById("refVal").textContent = (+control.ref_strength).toFixed(2);
@@ -102,7 +118,10 @@ async function refreshStatus() {
   const res = await fetch("/api/status");
   const data = await res.json();
   document.getElementById("state").textContent = data.running ? "running" : "idle";
-  document.getElementById("live").disabled = !data.running;
+  const backend = (data.control && data.control.backend) || document.getElementById("backend").value;
+  const isSana = backend === "sana_streaming";
+  document.getElementById("live").disabled = !data.running || isSana;
+  document.getElementById("sanaLive").disabled = !data.running || !isSana;
   document.getElementById("emitted").textContent = data.emitted ?? 0;
   document.getElementById("repeats").textContent = data.repeats ?? 0;
   document.getElementById("filled").textContent = data.filled ?? 0;
@@ -155,3 +174,41 @@ document.getElementById("applyPrompt").addEventListener("click", () => {
 document.getElementById("liveMode").addEventListener("change", () => {
   postControl({ mode: document.getElementById("liveMode").value });
 });
+
+// --- SANA backend panel ---
+function updatePanels() {
+  const isSana = document.getElementById("backend").value === "sana_streaming";
+  document.getElementById("live").style.display = isSana ? "none" : "";
+  document.getElementById("sanaLive").style.display = isSana ? "" : "none";
+}
+document.getElementById("backend").addEventListener("change", updatePanels);
+updatePanels();
+
+// HOT knobs (apply live, no reset)
+const sStepsEl = document.getElementById("sSteps");
+sStepsEl.addEventListener("change", () => postControl({ steps: +sStepsEl.value }));
+const sFlowEl = document.getElementById("sFlow");
+sFlowEl.addEventListener("input", () => {
+  document.getElementById("sFlowVal").textContent = (+sFlowEl.value).toFixed(1);
+  postControlDebounced({ flow_shift: +sFlowEl.value });
+});
+const sMotionEl = document.getElementById("sMotion");
+sMotionEl.addEventListener("input", () => {
+  document.getElementById("sMotionVal").textContent = sMotionEl.value;
+  postControlDebounced({ motion_score: +sMotionEl.value });
+});
+document.getElementById("sReroll").addEventListener("click", () => {
+  const v = Math.floor(Math.random() * 1e9);
+  document.getElementById("sSeed").value = v;
+  postControl({ seed: v });
+});
+// WARM knobs (trigger a state reset -> brief resync flash)
+const sCachedEl = document.getElementById("sCached");
+sCachedEl.addEventListener("input", () => {
+  document.getElementById("sCachedVal").textContent = sCachedEl.value;
+  postControlDebounced({ num_cached_blocks: +sCachedEl.value });
+});
+document.getElementById("sSink").addEventListener("change", () =>
+  postControl({ sink_token: document.getElementById("sSink").checked }));
+document.getElementById("sApplyPrompt").addEventListener("click", () =>
+  postControl({ prompt: document.getElementById("sPrompt").value }));
