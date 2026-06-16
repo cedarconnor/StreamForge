@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Callable
 
 import torch
@@ -10,7 +10,7 @@ import torch
 from streamforge.aspect import FitMode, Size, plan_fit, snap_to_multiple_for_aspect
 from streamforge.clock import FrameBuffer, RealtimeClock
 from streamforge.color import ColorPipeline
-from streamforge.control import TwoAxisControl
+from streamforge.control import EngineParams, TwoAxisControl
 from streamforge.metrics import jitter_ms
 from streamforge.worker import InferenceWorker
 
@@ -22,6 +22,41 @@ def frame_to_jpeg(frame, quality: int = 80) -> bytes:
     buf = io.BytesIO()
     Image.fromarray(arr).save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
+
+
+class LiveControl:
+    """Thread-safe live restyle controls. `params()` feeds the worker every frame;
+    `apply()` mutates the underlying TwoAxisControl and recomputes EngineParams under a lock."""
+
+    def __init__(self, ctrl: TwoAxisControl):
+        self._lock = threading.Lock()
+        self._ctrl = ctrl
+        self._params = ctrl.to_engine_params()
+
+    def params(self) -> EngineParams:
+        with self._lock:
+            return self._params
+
+    def apply(self, *, ref_strength=None, text_magnitude=None, steps=None, seed=None) -> None:
+        with self._lock:
+            updates: dict = {}
+            if ref_strength is not None:
+                updates["ref_strength"] = float(ref_strength)
+            if text_magnitude is not None:
+                updates["text_magnitude"] = float(text_magnitude)
+            if steps is not None:
+                updates["steps"] = max(1, int(steps))
+            if seed is not None:
+                updates["seed"] = int(seed)
+            if updates:
+                self._ctrl = replace(self._ctrl, **updates)
+                self._params = self._ctrl.to_engine_params()
+
+    def as_dict(self) -> dict:
+        with self._lock:
+            c = self._ctrl
+        return {"ref_strength": c.ref_strength, "text_magnitude": c.text_magnitude,
+                "steps": c.steps, "seed": c.seed}
 
 
 @dataclass(frozen=True)
