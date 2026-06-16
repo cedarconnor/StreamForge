@@ -35,3 +35,14 @@ dt { color: var(--muted); }
 dd { margin: 0; text-align: right; }
 pre { max-width: 100%; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--warn); }
 @media (max-width: 1050px) { .console { grid-template-columns: 1fr; } .previews { grid-template-columns: 1fr; } }
+
+.live { border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; padding: 6px 12px 2px; }
+.live[disabled] { opacity: 0.45; }
+.live legend { padding: 0 6px; font-weight: 600; color: var(--text); font-size: 12px; }
+.live label { margin: 10px 0; }
+.live input[type="range"] { width: 100%; padding: 0; }
+.live .hint { display: block; color: var(--muted); margin: -6px 0 8px; font-size: 11px; }
+.live .seed-row { display: flex; gap: 6px; }
+.live .seed-row input { flex: 1; }
+.live .seed-row button { width: auto; padding: 9px 12px; }
+.live textarea { min-height: 48px; }
