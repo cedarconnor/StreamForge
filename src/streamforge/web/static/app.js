@@ -41,15 +41,22 @@ async function postJson(url, body) {
   return res.json();
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
-}
-
 async function postControl(patch) {
   try { await postJson("/api/control", patch); } catch (e) { showMessage(e.message); }
 }
-const postControlDebounced = debounce(postControl, 150);
+// Debounce slider drags, but MERGE patches across the window so two knobs nudged within 150ms
+// both reach the engine (a single shared timer would otherwise drop all but the last key).
+let pendingControlPatch = {};
+let pendingControlTimer;
+function postControlDebounced(patch) {
+  Object.assign(pendingControlPatch, patch);
+  clearTimeout(pendingControlTimer);
+  pendingControlTimer = setTimeout(() => {
+    const merged = pendingControlPatch;
+    pendingControlPatch = {};
+    postControl(merged);
+  }, 150);
+}
 
 function denoiseFor(ref) {
   // mirrors control.py: _lerp(DENOISE_MAX=0.95, DENOISE_MIN=0.30, ref)

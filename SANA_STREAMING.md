@@ -114,14 +114,31 @@ motion / seed live; cached-blocks / sink-token / prompt "resync" (rebuild the GD
 
 ---
 
+## Live UI verification (Chrome plugin, 2026-06-16)
+
+Both backends driven end-to-end in a real browser via the Chrome automation plugin (`.venv-sana`
+server for SANA, `.venv` server for FLUX), using `TestFile/DriveVideo.mp4` as a looping file source.
+
+- **SANA-Streaming:** backend dropdown → SANA panel swap (both directions); Validate (640×480 →
+  384×288, `crop_direction: none`); Start loads the stack and streams (~690 ms/chunk step-4,
+  jitter ~3–7 ms, 4 600+ frames emitted, no errors). All live knobs propagate to the GPU engine:
+  HOT (`step` 4→2 — confirmed by inference dropping 717→517 ms, `flow_shift`, `motion_score`,
+  seed reroll); WARM (`num_cached_blocks`, `sink_token`, live `prompt`) trigger `reset_state()`
+  without crashing, and the output visibly re-styles to a new prompt. Stop → clean shutdown.
+- **FLUX (img2img):** Start loads FLUX.2-klein-4B and streams (~410 ms/frame at 384×288 step-4);
+  output tracks the input structure; `ref_strength`/`steps` propagate live. Stop → clean shutdown.
+- **Fixed during this pass:** the live-control sliders shared one debounce timer, so two knobs
+  nudged within 150 ms dropped all but the last patch. `postControlDebounced` now **merges**
+  patches across the window (`src/streamforge/web/static/app.js`), so concurrent slider changes
+  all reach `/api/control`. Verified: simultaneous `ref_strength`+`steps` both apply.
+- **Benign log line:** SANA's reference code prints `Failed to load null embed from None … Ignore
+  the error during inference` — it falls back to the runtime-computed negative embeds; harmless.
+
 ## Caveats / known issues
 
 - **VAE chunk seams:** `push_frame` VAE-encodes each ~17-frame window independently, so the LTX-2
   causal VAE may seam at chunk boundaries. The DiT path is bit-exact across chunks; the VAE is the
   residual risk. Verify visually; a future improvement is a stateful framewise VAE stream.
-- **Live browser verification of the SANA panel** (Chrome plugin) was not run — the UI is
-  implemented + syntax/structure-verified and the API layer is unit-tested, but a live `.venv-sana`
-  server + browser pass is the remaining acceptance.
 - **Two venvs:** the SANA backend only works when StreamForge runs under `.venv-sana`; the FLUX
   backend continues to run under `.venv`.
 
