@@ -35,3 +35,25 @@ def test_start_status_stop():
     assert client.get("/api/status").json()["running"] is True
     assert client.post("/api/run/stop").status_code == 200
     assert client.get("/api/status").json()["running"] is False
+
+
+def test_control_endpoint_applies_and_returns_snapshot():
+    class ControlRunner(FakeRunner):
+        def __init__(self):
+            super().__init__()
+            self.last = None
+
+        def apply_control(self, **kwargs):
+            self.last = kwargs
+            return {"ref_strength": 0.9, "text_magnitude": 1.0, "steps": 6,
+                    "seed": 7, "prompt": "p", "mode": "edit", **kwargs}
+
+    runner = ControlRunner()
+    client = TestClient(create_app(runner))
+    res = client.post("/api/control", json={"ref_strength": 0.9, "steps": 6})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ref_strength"] == 0.9
+    assert body["steps"] == 6
+    # only provided fields are forwarded (no None spam)
+    assert runner.last == {"ref_strength": 0.9, "steps": 6}
