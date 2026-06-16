@@ -30,7 +30,8 @@ def _lerp(a: float, b: float, t: float) -> float:
 @dataclass(frozen=True)
 class EngineParams:
     denoise_strength: float   # img2img noise added to the encoded input latent
-    guidance: float           # FLUX.2 distilled guidance scalar
+    guidance: float           # FLUX.2 distilled guidance scalar (unused by distilled klein-4B)
+    text_magnitude: float = 1.0   # prompt-embedding lerp factor; 1.0 == plain prompt (no-op)
     steps: int = 4
     seed: int = 7
 
@@ -53,8 +54,10 @@ class TwoAxisControl:
         # high ref_strength -> low denoise (stay faithful to input structure)
         denoise = _lerp(DENOISE_MAX, DENOISE_MIN, rs)
         guidance = _lerp(GUIDANCE_MIN, GUIDANCE_MAX, tm)
+        # text_magnitude drives an embedding lerp in the runtime; allow >1 to exaggerate style.
+        tm_lerp = max(0.0, min(1.5, self.text_magnitude))
         return EngineParams(denoise_strength=denoise, guidance=guidance,
-                            steps=self.steps, seed=self.seed)
+                            text_magnitude=tm_lerp, steps=self.steps, seed=self.seed)
 
     @classmethod
     def preset(cls, name: str) -> "TwoAxisControl":

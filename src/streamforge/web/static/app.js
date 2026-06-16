@@ -38,6 +38,36 @@ async function postJson(url, body) {
   return res.json();
 }
 
+function debounce(fn, ms) {
+  let t;
+  return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+async function postControl(patch) {
+  try { await postJson("/api/control", patch); } catch (e) { showMessage(e.message); }
+}
+const postControlDebounced = debounce(postControl, 150);
+
+function denoiseFor(ref) {
+  // mirrors control.py: _lerp(DENOISE_MAX=0.95, DENOISE_MIN=0.30, ref)
+  return (0.95 + (0.30 - 0.95) * ref).toFixed(2);
+}
+
+function seedControls(control) {
+  if (!control) return;
+  const ref = document.getElementById("refStrength");
+  ref.value = control.ref_strength;
+  document.getElementById("refVal").textContent = (+control.ref_strength).toFixed(2);
+  document.getElementById("denoiseVal").textContent = `denoise ${denoiseFor(+control.ref_strength)}`;
+  document.getElementById("textMag").value = control.text_magnitude;
+  document.getElementById("tmVal").textContent = (+control.text_magnitude).toFixed(2);
+  document.getElementById("steps").value = control.steps;
+  document.getElementById("stepsVal").textContent = control.steps;
+  document.getElementById("seed").value = control.seed;
+  document.getElementById("livePrompt").value = control.prompt;
+  document.getElementById("liveMode").value = control.mode;
+}
+
 async function validate() {
   const data = await postJson("/api/validate", config());
   showMessage(data);
@@ -56,6 +86,9 @@ async function validate() {
 async function start() {
   await postJson("/api/run/start", config());
   showMessage("started");
+  const res = await fetch("/api/status");
+  const data = await res.json();
+  if (data.control) seedControls(data.control);
   await refreshStatus();
 }
 
@@ -69,6 +102,7 @@ async function refreshStatus() {
   const res = await fetch("/api/status");
   const data = await res.json();
   document.getElementById("state").textContent = data.running ? "running" : "idle";
+  document.getElementById("live").disabled = !data.running;
   document.getElementById("emitted").textContent = data.emitted ?? 0;
   document.getElementById("repeats").textContent = data.repeats ?? 0;
   document.getElementById("filled").textContent = data.filled ?? 0;
@@ -85,3 +119,39 @@ document.getElementById("start").addEventListener("click", () => start().catch(e
 document.getElementById("stop").addEventListener("click", () => stop().catch(err => showMessage(err.message)));
 window.setInterval(() => refreshStatus().catch(() => {}), 1000);
 refreshStatus().catch(() => {});
+
+const refEl = document.getElementById("refStrength");
+refEl.addEventListener("input", () => {
+  const v = +refEl.value;
+  document.getElementById("refVal").textContent = v.toFixed(2);
+  document.getElementById("denoiseVal").textContent = `denoise ${denoiseFor(v)}`;
+  postControlDebounced({ ref_strength: v });
+});
+
+const tmEl = document.getElementById("textMag");
+tmEl.addEventListener("input", () => {
+  const v = +tmEl.value;
+  document.getElementById("tmVal").textContent = v.toFixed(2);
+  postControlDebounced({ text_magnitude: v });
+});
+
+const stepsEl = document.getElementById("steps");
+stepsEl.addEventListener("input", () => {
+  const v = +stepsEl.value;
+  document.getElementById("stepsVal").textContent = v;
+  postControlDebounced({ steps: v });
+});
+
+document.getElementById("reroll").addEventListener("click", () => {
+  const v = Math.floor(Math.random() * 1e9);
+  document.getElementById("seed").value = v;
+  postControl({ seed: v });
+});
+
+document.getElementById("applyPrompt").addEventListener("click", () => {
+  postControl({ prompt: document.getElementById("livePrompt").value });
+});
+
+document.getElementById("liveMode").addEventListener("change", () => {
+  postControl({ mode: document.getElementById("liveMode").value });
+});

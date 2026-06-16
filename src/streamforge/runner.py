@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Callable
 
 import torch
@@ -10,7 +10,7 @@ import torch
 from streamforge.aspect import FitMode, Size, plan_fit, snap_to_multiple_for_aspect
 from streamforge.clock import FrameBuffer, RealtimeClock
 from streamforge.color import ColorPipeline
-from streamforge.control import TwoAxisControl
+from streamforge.control import EngineParams, TwoAxisControl
 from streamforge.metrics import jitter_ms
 from streamforge.worker import InferenceWorker
 
@@ -22,6 +22,41 @@ def frame_to_jpeg(frame, quality: int = 80) -> bytes:
     buf = io.BytesIO()
     Image.fromarray(arr).save(buf, format="JPEG", quality=quality)
     return buf.getvalue()
+
+
+class LiveControl:
+    """Thread-safe live restyle controls. `params()` feeds the worker every frame;
+    `apply()` mutates the underlying TwoAxisControl and recomputes EngineParams under a lock."""
+
+    def __init__(self, ctrl: TwoAxisControl):
+        self._lock = threading.Lock()
+        self._ctrl = ctrl
+        self._params = ctrl.to_engine_params()
+
+    def params(self) -> EngineParams:
+        with self._lock:
+            return self._params
+
+    def apply(self, *, ref_strength=None, text_magnitude=None, steps=None, seed=None) -> None:
+        with self._lock:
+            updates: dict = {}
+            if ref_strength is not None:
+                updates["ref_strength"] = float(ref_strength)
+            if text_magnitude is not None:
+                updates["text_magnitude"] = float(text_magnitude)
+            if steps is not None:
+                updates["steps"] = max(1, int(steps))
+            if seed is not None:
+                updates["seed"] = int(seed)
+            if updates:
+                self._ctrl = replace(self._ctrl, **updates)
+                self._params = self._ctrl.to_engine_params()
+
+    def as_dict(self) -> dict:
+        with self._lock:
+            c = self._ctrl
+        return {"ref_strength": c.ref_strength, "text_magnitude": c.text_magnitude,
+                "steps": c.steps, "seed": c.seed}
 
 
 @dataclass(frozen=True)
@@ -114,6 +149,10 @@ class StreamForgeRunner:
         self._worker = None
         self._clock = None
         self._sink = None
+        self._control: LiveControl | None = None
+        self._runtime = None
+        self._prompt: str | None = None
+        self._mode: str | None = None
         self._clock_thread: threading.Thread | None = None
 
     def validate(self, config: RunnerConfig) -> dict:
@@ -156,7 +195,10 @@ class StreamForgeRunner:
         sink.open()
         color = None if config.color == "off" else ColorPipeline(range_mode=config.color)
         fb = FrameBuffer()
-        params = TwoAxisControl.preset(config.preset).to_engine_params()
+        self._control = LiveControl(TwoAxisControl.preset(config.preset))
+        self._runtime = runtime
+        self._prompt = config.prompt
+        self._mode = config.mode
         filler = None
         flow = None
         if config.fill == "warp":
@@ -182,7 +224,7 @@ class StreamForgeRunner:
                 self._timestamps.append(time.perf_counter())
             sink.send(out)
 
-        worker = InferenceWorker(source, runtime, fb, params_provider=lambda: params,
+        worker = InferenceWorker(source, runtime, fb, params_provider=self._control.params,
                                  on_timing=timing, flow=flow, filler=filler)
         clock = RealtimeClock(config.fps, fb, emit, filler=filler)
         self._worker = worker
@@ -210,8 +252,32 @@ class StreamForgeRunner:
         self._clock = None
         self._worker = None
         self._sink = None
+        self._control = None
+        self._runtime = None
         self._clock_thread = None
         self._running = False
+
+    def _control_snapshot(self) -> dict | None:
+        if self._control is None:
+            return None
+        d = self._control.as_dict()
+        d["prompt"] = self._prompt
+        d["mode"] = self._mode
+        return d
+
+    def apply_control(self, *, ref_strength=None, text_magnitude=None, steps=None,
+                      seed=None, prompt=None, mode=None) -> dict:
+        if self._control is None or self._runtime is None:
+            return {}
+        self._control.apply(ref_strength=ref_strength, text_magnitude=text_magnitude,
+                            steps=steps, seed=seed)
+        if prompt is not None:
+            self._runtime.set_prompt(prompt)
+            self._prompt = prompt
+        if mode is not None:
+            self._runtime.set_mode(mode)
+            self._mode = mode
+        return self._control_snapshot() or {}
 
     def status(self) -> dict:
         with self._lock:
@@ -229,6 +295,7 @@ class StreamForgeRunner:
             "repeats": repeats,
             "filled": clock.filled_count if clock else 0,
             "fresh_ai": max(0, emitted - repeats),
+            "control": self._control_snapshot(),
         }
 
     def latest_input_jpeg(self) -> bytes | None:

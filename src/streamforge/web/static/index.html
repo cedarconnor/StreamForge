@@ -46,6 +46,35 @@
         <button id="start">Start</button>
         <button id="stop">Stop</button>
       </div>
+      <fieldset id="live" class="live" disabled>
+        <legend>Live Control</legend>
+        <label>Ref strength <span id="refVal">0.55</span>
+          <input id="refStrength" type="range" min="0" max="1" step="0.01" value="0.55">
+        </label>
+        <small id="denoiseVal" class="hint">denoise 0.59</small>
+        <label>Text magnitude <span id="tmVal">0.60</span>
+          <input id="textMag" type="range" min="0" max="1.5" step="0.01" value="0.60">
+        </label>
+        <label>Steps <span id="stepsVal">4</span>
+          <input id="steps" type="range" min="1" max="8" step="1" value="4">
+        </label>
+        <label>Seed
+          <span class="seed-row">
+            <input id="seed" type="number" value="7">
+            <button id="reroll" type="button">Reroll</button>
+          </span>
+        </label>
+        <label>Live prompt
+          <textarea id="livePrompt">vivid oil painting, thick impasto brushstrokes</textarea>
+          <button id="applyPrompt" type="button">Apply prompt</button>
+        </label>
+        <label>Mode
+          <select id="liveMode">
+            <option value="img2img">img2img</option>
+            <option value="edit">edit</option>
+          </select>
+        </label>
+      </fieldset>
     </aside>
     <section class="previews">
       <div class="preview-card">

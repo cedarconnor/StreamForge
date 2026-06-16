@@ -36,6 +36,15 @@ class RunnerConfigIn(BaseModel):
         return RunnerConfig(**{k: v for k, v in data.items() if k in allowed})
 
 
+class ControlIn(BaseModel):
+    ref_strength: float | None = None
+    text_magnitude: float | None = None
+    steps: int | None = None
+    seed: int | None = None
+    prompt: str | None = None
+    mode: str | None = None
+
+
 def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
     app = FastAPI(title="StreamForge Operator Console")
     app.state.runner = runner or StreamForgeRunner()
@@ -76,6 +85,10 @@ def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
     def stop():
         app.state.runner.stop()
         return {"ok": True}
+
+    @app.post("/api/control")
+    def control(body: ControlIn):
+        return app.state.runner.apply_control(**body.model_dump(exclude_none=True))
 
     @app.get("/api/status")
     def status():
