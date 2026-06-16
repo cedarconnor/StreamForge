@@ -1,4 +1,4 @@
-from streamforge.control import TwoAxisControl
+from streamforge.control import EngineParams, TwoAxisControl
 
 
 def test_preset_names_in_range():
@@ -33,3 +33,20 @@ def test_preset_ladder_is_monotonic():
     guidance = [TwoAxisControl.preset(n).to_engine_params().guidance for n in names]
     assert denoise == sorted(denoise)    # increasing: more hallucination toward FORCE
     assert guidance == sorted(guidance)  # increasing: more stylization toward FORCE
+
+
+def test_engine_params_text_magnitude_defaults_to_one():
+    p = EngineParams(denoise_strength=0.5, guidance=2.0)
+    assert p.text_magnitude == 1.0
+
+
+def test_to_engine_params_passes_text_magnitude():
+    p = TwoAxisControl(ref_strength=0.5, text_magnitude=0.7).to_engine_params()
+    assert abs(p.text_magnitude - 0.7) < 1e-9
+
+
+def test_text_magnitude_allows_exaggeration_up_to_1_5():
+    hi = TwoAxisControl(ref_strength=0.5, text_magnitude=3.0).to_engine_params()
+    lo = TwoAxisControl(ref_strength=0.5, text_magnitude=-1.0).to_engine_params()
+    assert hi.text_magnitude == 1.5     # clamped to lerp ceiling
+    assert lo.text_magnitude == 0.0
