@@ -46,6 +46,53 @@ def test_webcam_source_reads_bgr_frame_and_reports_status(monkeypatch):
     assert status.width == 6 and status.height == 4
 
 
+class FlakyCV2:
+    """A webcam that fails the first two grabs (transient MSMF 0xC00D3704) then succeeds."""
+    COLOR_BGR2RGB = 1
+    CAP_PROP_FRAME_WIDTH = 3
+    CAP_PROP_FRAME_HEIGHT = 4
+    CAP_DSHOW = 700
+    CAP_MSMF = 1400
+
+    class VideoCapture:
+        def __init__(self, index, backend=None):
+            self.index = index
+            self.backend = backend
+            self.opened = True
+            self.frame = np.zeros((4, 6, 3), dtype=np.uint8)
+            self.calls = 0
+
+        def isOpened(self):
+            return self.opened
+
+        def read(self):
+            self.calls += 1
+            if self.calls <= 2:
+                return False, None
+            return True, self.frame
+
+        def get(self, prop):
+            return {3: 6, 4: 4}.get(prop, 0)
+
+        def release(self):
+            self.opened = False
+
+    @staticmethod
+    def cvtColor(frame, code):
+        return frame[:, :, ::-1]
+
+
+def test_webcam_source_tolerates_transient_grab_failures(monkeypatch):
+    monkeypatch.setitem(sys.modules, "cv2", FlakyCV2)
+    from streamforge.sources.webcam import WebcamSource
+    source = WebcamSource(index=0, fps=30, device="cpu", read_timeout=1.0)
+    source.open()
+    frame = source.read()  # first two grabs fail; must retry, not return None (which stops the run)
+    source.close()
+    assert frame is not None
+    assert frame.width == 6 and frame.height == 4
+
+
 class FakeNDIVideo:
     def __init__(self):
         self.data = np.zeros((4, 6, 4), dtype=np.uint8)
