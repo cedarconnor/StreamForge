@@ -118,6 +118,10 @@ echo Installing mmcv 1.7.2 (pure-python, no CUDA ops) ...
 "%SPY%" -m pip install --no-build-isolation "mmcv==1.7.2"
 if errorlevel 1 exit /b 1
 
+echo Installing NDI + Spout input support (for those Input Types under SANA) ...
+"%SPY%" -m pip install ndi-python SpoutGL
+if errorlevel 1 exit /b 1
+
 echo Installing StreamForge package into .venv-sana (editable, --no-deps) ...
 "%SPY%" -m pip install -e . --no-deps
 if errorlevel 1 exit /b 1

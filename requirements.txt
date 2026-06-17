@@ -14,3 +14,8 @@ pytest
 fastapi
 uvicorn
 httpx
+# NDI + Spout input sources and sinks (Windows-only runtime support)
+ndi-python; sys_platform == "win32"
+SpoutGL; sys_platform == "win32"
+# glfw: only needed to run the optional Spout test sender (scripts/spout_test_sender.py)
+glfw; sys_platform == "win32"

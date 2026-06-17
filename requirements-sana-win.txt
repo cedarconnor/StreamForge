@@ -29,6 +29,11 @@
 #   #    Builds from sdist, so needs wheel + setuptools<80 (installed in step 0):
 #   pip install --no-build-isolation "mmcv==1.7.2"
 #
+#   # 6. (optional) NDI / Spout INPUT sources — only needed to use those Input Types under the
+#   #    SANA server. Webcam + File need nothing extra (opencv-python from step 3 covers them).
+#   #    All four input types verified live under SANA via the console (2026-06-16).
+#   pip install ndi-python SpoutGL
+#
 # RUNTIME (not pip): the streaming script imports top-level SANA packages and a Unix-only module.
 #   - PYTHONPATH must include the SANA repo root AND the shim dir:
 #       $env:PYTHONPATH = "D:\StreamForge\scripts\sana_shims;D:\StreamForge\external\Sana"
@@ -40,7 +45,7 @@
 #   torch==2.11.0+cu128  torchvision==0.26.0+cu128  triton-windows==3.6.0.post26
 #   transformers==4.57.3  diffusers==0.38.0  accelerate  timm==1.0.27  mmcv==1.7.2
 #   flash-linear-attention==0.5.0  fla-core==0.5.0  qwen-vl-utils==0.0.14  av==17.1.0
-#   ftfy==6.3.1  pytz==2026.2
+#   ftfy==6.3.1  pytz==2026.2  ndi-python==6.3.2.3  spoutgl==0.1.1  (NDI/Spout input, optional)
 #
 # EXCLUDED (training/eval/Linux-only, NOT needed for streaming inference):
 #   xformers, wandb, tensorboard, webdataset, gradio, image-reward, pytorch-fid,
