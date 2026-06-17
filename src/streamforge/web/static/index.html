@@ -10,19 +10,39 @@
   <main class="console">
     <aside class="rail">
       <h1>StreamForge</h1>
+      <details class="guide" open>
+        <summary>Quickstart — how to run</summary>
+        <ol>
+          <li>Pick <b>Input Type</b> + Source (Webcam <code>0</code>, or <b>Browse…</b> to a video File — it loops).</li>
+          <li>Pick <b>Backend</b>: <b>FLUX</b> = per-frame restyle; <b>SANA</b> = temporal (launch with <code>start-sana.bat</code>).</li>
+          <li>Write a <b>Prompt</b> for the look you want.</li>
+          <li><b>Validate</b> — opens the source once and shows the input/output sizes.</li>
+          <li><b>Start</b> — first start loads the model (~10–30&nbsp;s), then the Output preview goes live.</li>
+          <li>Tune the <b>Live Control</b> sliders while running — no restart needed.</li>
+        </ol>
+        <p class="hint">Recommended first run: <b>File</b>/<b>Webcam</b> · Backend <b>FLUX</b> · Aspect <b>Auto preserve</b> · Preset <b>BALANCED</b> · Steps <b>4</b> · Ref&nbsp;~<b>0.55</b>. In <b>Run Health</b>, Emitted should climb and Jitter stay low (single-digit&nbsp;ms).</p>
+      </details>
       <label>Input Type
-        <select id="sourceType">
+        <select id="sourceType" title="Where frames come from. Webcam = USB/built-in camera. NDI = a video stream on the local network. Spout = a GPU texture shared by another Windows app. File = a video file that loops forever.">
           <option value="webcam">Webcam</option>
           <option value="ndi">NDI</option>
           <option value="spout">Spout</option>
           <option value="file">File</option>
         </select>
       </label>
-      <label>Source
-        <input id="sourceName" value="0">
+      <label>Source <small id="sourceHint" class="hint">webcam index (0, 1, …)</small>
+        <input id="sourceName" value="0" title="Identifies the source: a webcam index (0, 1, …), an NDI/Spout sender name, or a video file path.">
       </label>
+      <div id="filePick" class="file-pick" style="display:none">
+        <div class="file-row">
+          <button id="browse" type="button" title="Open a native file dialog on this PC to pick a video. The chosen clip loops forever.">Browse…</button>
+          <select id="recentFiles" title="Video files found under TestFile/. Pick one to load it into the Source field.">
+            <option value="">recent…</option>
+          </select>
+        </div>
+      </div>
       <label>Aspect Policy
-        <select id="inRes">
+        <select id="inRes" title="Resolution the model runs at internally. Auto preserve keeps the source aspect at ≤384 px (fast, recommended). Native uses the full source size (slower). Fixed sizes crop to that aspect. Lower = faster.">
           <option value="auto">Auto preserve</option>
           <option value="native">Native</option>
           <option value="384x288">4:3 384x288</option>
@@ -30,16 +50,16 @@
         </select>
       </label>
       <label>Backend
-        <select id="backend">
+        <select id="backend" title="FLUX = per-frame img2img restyle, no temporal memory (run with start-flux.bat / .venv). SANA-Streaming = temporal video model with frame-to-frame coherence (run with start-sana.bat / .venv-sana).">
           <option value="flux">FLUX (img2img)</option>
           <option value="sana_streaming">SANA-Streaming (temporal)</option>
         </select>
       </label>
       <label>Prompt
-        <textarea id="prompt">vivid oil painting, thick impasto brushstrokes</textarea>
+        <textarea id="prompt" title="The style/scene description applied to every frame. Set this before Validate/Start; you can also change it live below while running.">vivid oil painting, thick impasto brushstrokes</textarea>
       </label>
       <label>Preset
-        <select id="preset">
+        <select id="preset" title="Starting point for the live controls. BALANCED is a good FLUX default. SANA_FAST / SANA_BALANCED are for the SANA backend.">
           <option>PRESERVE</option>
           <option>SUBTLE</option>
           <option selected>BALANCED</option>
@@ -50,68 +70,68 @@
         </select>
       </label>
       <div class="buttons">
-        <button id="validate">Validate</button>
-        <button id="start">Start</button>
-        <button id="stop">Stop</button>
+        <button id="validate" title="Open the source once and report its resolution plus the internal/output size. Run this before Start.">Validate</button>
+        <button id="start" title="Load the model and begin streaming. The first start loads/downloads weights (~10–30 s).">Start</button>
+        <button id="stop" title="Stop streaming and release the source/model.">Stop</button>
       </div>
-      <fieldset id="live" class="live" disabled>
+      <fieldset id="live" class="live" disabled title="FLUX live controls — take effect immediately while running, no restart.">
         <legend>Live Control</legend>
         <label>Ref strength <span id="refVal">0.55</span>
-          <input id="refStrength" type="range" min="0" max="1" step="0.01" value="0.55">
+          <input id="refStrength" type="range" min="0" max="1" step="0.01" value="0.55" title="How closely the output follows the input image vs. the prompt. Higher = more faithful to the source; lower = more stylized (lower denoise).">
         </label>
         <small id="denoiseVal" class="hint">denoise 0.59</small>
         <label>Text magnitude <span id="tmVal">0.60</span>
-          <input id="textMag" type="range" min="0" max="1.5" step="0.01" value="0.60">
+          <input id="textMag" type="range" min="0" max="1.5" step="0.01" value="0.60" title="How strongly the prompt is applied. 1.0 = normal, >1 exaggerates the style, 0 = neutral (prompt ignored).">
         </label>
         <label>Steps <span id="stepsVal">4</span>
-          <input id="steps" type="range" min="1" max="8" step="1" value="4">
+          <input id="steps" type="range" min="1" max="8" step="1" value="4" title="Diffusion steps per frame. More = higher quality but slower. 4 is a good real-time balance.">
         </label>
         <label>Seed
           <span class="seed-row">
-            <input id="seed" type="number" value="7">
-            <button id="reroll" type="button">Reroll</button>
+            <input id="seed" type="number" value="7" title="Random seed for the diffusion noise. Same seed = repeatable result.">
+            <button id="reroll" type="button" title="Pick a new random seed for a different variation of the same prompt.">Reroll</button>
           </span>
         </label>
         <label>Live prompt
-          <textarea id="livePrompt">vivid oil painting, thick impasto brushstrokes</textarea>
-          <button id="applyPrompt" type="button">Apply prompt</button>
+          <textarea id="livePrompt" title="Change the style mid-run. Edit, then click Apply prompt to push it to the engine.">vivid oil painting, thick impasto brushstrokes</textarea>
+          <button id="applyPrompt" type="button" title="Send the live prompt to the running engine.">Apply prompt</button>
         </label>
         <label>Mode
-          <select id="liveMode">
+          <select id="liveMode" title="edit = strong structure preservation (slower, native reference path). img2img = faster, more stylized (classic flow-matching).">
             <option value="img2img">img2img</option>
             <option value="edit">edit</option>
           </select>
         </label>
       </fieldset>
-      <fieldset id="sanaLive" class="live" disabled style="display:none">
+      <fieldset id="sanaLive" class="live" disabled style="display:none" title="SANA temporal live controls. HOT knobs apply instantly; knobs marked 'resyncs' rebuild the temporal state (a brief flash).">
         <legend>SANA Live Control</legend>
         <label>Steps
-          <select id="sSteps">
+          <select id="sSteps" title="Denoise steps per chunk. 2 = faster, 4 = higher quality. Applies live.">
             <option value="2">2 (fast)</option>
             <option value="4" selected>4 (balanced)</option>
           </select>
         </label>
         <label>Flow shift <span id="sFlowVal">8.0</span>
-          <input id="sFlow" type="range" min="1" max="12" step="0.5" value="8">
+          <input id="sFlow" type="range" min="1" max="12" step="0.5" value="8" title="Noise-schedule bias. Higher = stronger restyle and motion. Applies live.">
         </label>
         <label>Motion <span id="sMotionVal">0</span>
-          <input id="sMotion" type="range" min="0" max="20" step="1" value="0">
+          <input id="sMotion" type="range" min="0" max="20" step="1" value="0" title="Motion-score hint. 0 = let the model decide; higher emphasizes motion. Applies live.">
         </label>
         <label>Seed
           <span class="seed-row">
-            <input id="sSeed" type="number" value="7">
-            <button id="sReroll" type="button">Reroll</button>
+            <input id="sSeed" type="number" value="7" title="Random seed for the generator. Applies live.">
+            <button id="sReroll" type="button" title="Pick a new random seed.">Reroll</button>
           </span>
         </label>
         <label>Cached blocks <span id="sCachedVal">2</span> <small class="hint">resyncs</small>
-          <input id="sCached" type="range" min="1" max="4" step="1" value="2">
+          <input id="sCached" type="range" min="1" max="4" step="1" value="2" title="GDN/KV temporal cache window (blocks). More = longer memory. Changing it rebuilds the temporal state (brief resync flash).">
         </label>
         <label class="check">
-          <input id="sSink" type="checkbox" checked> Sink token <small class="hint">resyncs</small>
+          <input id="sSink" type="checkbox" checked title="Attention-sink token for long-run stability. Toggling rebuilds the temporal state."> Sink token <small class="hint">resyncs</small>
         </label>
         <label>Live prompt
-          <textarea id="sPrompt">vivid oil painting, thick impasto brushstrokes</textarea>
-          <button id="sApplyPrompt" type="button">Apply prompt (resyncs)</button>
+          <textarea id="sPrompt" title="Change the style mid-run. Applying rebuilds the temporal state (brief resync flash).">vivid oil painting, thick impasto brushstrokes</textarea>
+          <button id="sApplyPrompt" type="button" title="Send the new prompt; rebuilds temporal state.">Apply prompt (resyncs)</button>
         </label>
       </fieldset>
     </aside>
@@ -128,12 +148,12 @@
     <aside class="health">
       <h2>Run Health</h2>
       <dl>
-        <dt>State</dt><dd id="state">idle</dd>
-        <dt>Emitted</dt><dd id="emitted">0</dd>
-        <dt>Repeats</dt><dd id="repeats">0</dd>
-        <dt>Filled</dt><dd id="filled">0</dd>
-        <dt>Jitter</dt><dd id="jitter">0.0 ms</dd>
-        <dt>Inference</dt><dd id="infer">none</dd>
+        <dt title="Whether the engine is currently streaming.">State</dt><dd id="state">idle</dd>
+        <dt title="Total output frames emitted to the preview/sink since Start. Should climb steadily.">Emitted</dt><dd id="emitted">0</dd>
+        <dt title="Frames the clock repeated because no new AI frame was ready in time (engine is behind real-time).">Repeats</dt><dd id="repeats">0</dd>
+        <dt title="Frames synthesized by the optical-flow frame-filler (only when Fill = warp).">Filled</dt><dd id="filled">0</dd>
+        <dt title="Variation in output frame timing. Lower is smoother; single-digit ms is good.">Jitter</dt><dd id="jitter">0.0 ms</dd>
+        <dt title="Wall-clock time of the last model inference (per frame for FLUX, per chunk for SANA).">Inference</dt><dd id="infer">none</dd>
       </dl>
       <pre id="messages"></pre>
     </aside>

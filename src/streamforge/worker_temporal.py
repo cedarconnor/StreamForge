@@ -52,7 +52,7 @@ class TemporalInferenceWorker:
 
     def __init__(self, source, runtime, frame_buffer: QueueFrameBuffer,
                  control=None, on_timing: Optional[Callable[[str, float], None]] = None,
-                 flow=None, filler=None):
+                 flow=None, filler=None, on_input: Optional[Callable] = None):
         self.source = source
         self.runtime = runtime
         self.fb = frame_buffer
@@ -60,6 +60,7 @@ class TemporalInferenceWorker:
         self.on_timing = on_timing
         self.flow = flow
         self.filler = filler
+        self.on_input = on_input
         self._t: Optional[threading.Thread] = None
         self._running = False
 
@@ -78,6 +79,8 @@ class TemporalInferenceWorker:
                 f = self.source.read()
                 if f is None:
                     break
+                if self.on_input is not None:
+                    self.on_input(f)  # live Input preview tracks the source, not the validate frame
                 if self.control is not None and self.control.needs_reset:
                     self.runtime.reset_state()
                     self.control.clear_reset()

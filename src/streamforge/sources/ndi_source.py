@@ -12,10 +12,12 @@ from streamforge.sources.base import Capabilities, Source, SourceStatus
 class NDISource(Source):
     capabilities = Capabilities(has_motion_vectors=False)
 
-    def __init__(self, name: str = "", fps: int = 30, device: str = "cuda", timeout_ms: int = 1000):
+    def __init__(self, name: str = "", fps: int = 30, device: str = "cuda", timeout_ms: int = 1000,
+                 read_timeout: float = 3.0):
         self.name = name
         self.fps = fps
         self.timeout_ms = timeout_ms
+        self.read_timeout = read_timeout  # block this long for a VIDEO frame before signalling end
         self._device = device if torch.cuda.is_available() else "cpu"
         self._ndi = None
         self._finder = None
@@ -65,24 +67,29 @@ class NDISource(Source):
         self._seq = 0
 
     def read(self) -> GpuFrame | None:
+        """Block up to read_timeout for a VIDEO frame, skipping audio/metadata/idle captures
+        (returning None on the first non-video frame would make the worker stop the stream)."""
         if self._ndi is None or self._recv is None:
             return None
-        tpe, v, a, _m = self._ndi.recv_capture_v2(self._recv, self.timeout_ms)
-        if tpe == self._ndi.FRAME_TYPE_VIDEO:
-            try:
-                rgba = np.copy(v.data)
-                rgb = rgba[:, :, :3]
-                tensor = torch.from_numpy(rgb).permute(2, 0, 1)[None].float().div(255).to(self._device)
-                self._size = (tensor.shape[-1], tensor.shape[-2])
-                self._last_frame_t = time.perf_counter()
-                frame = GpuFrame(tensor=tensor, seq=self._seq, pts=self._seq / self.fps,
-                                 width=tensor.shape[-1], height=tensor.shape[-2])
-                self._seq += 1
-                return frame
-            finally:
-                self._ndi.recv_free_video_v2(self._recv, v)
-        if tpe == self._ndi.FRAME_TYPE_AUDIO:
-            self._ndi.recv_free_audio_v2(self._recv, a)
+        deadline = time.perf_counter() + self.read_timeout
+        while time.perf_counter() < deadline:
+            tpe, v, a, _m = self._ndi.recv_capture_v2(self._recv, self.timeout_ms)
+            if tpe == self._ndi.FRAME_TYPE_VIDEO:
+                try:
+                    rgba = np.copy(v.data)
+                    rgb = rgba[:, :, :3]
+                    tensor = torch.from_numpy(rgb).permute(2, 0, 1)[None].float().div(255).to(self._device)
+                    self._size = (tensor.shape[-1], tensor.shape[-2])
+                    self._last_frame_t = time.perf_counter()
+                    frame = GpuFrame(tensor=tensor, seq=self._seq, pts=self._seq / self.fps,
+                                     width=tensor.shape[-1], height=tensor.shape[-2])
+                    self._seq += 1
+                    return frame
+                finally:
+                    self._ndi.recv_free_video_v2(self._recv, v)
+            if tpe == self._ndi.FRAME_TYPE_AUDIO:
+                self._ndi.recv_free_audio_v2(self._recv, a)
+            # FRAME_TYPE_NONE / metadata: keep polling until the deadline
         return None
 
     def status(self) -> SourceStatus:

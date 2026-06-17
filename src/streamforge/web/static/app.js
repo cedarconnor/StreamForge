@@ -219,3 +219,62 @@ document.getElementById("sSink").addEventListener("change", () =>
   postControl({ sink_token: document.getElementById("sSink").checked }));
 document.getElementById("sApplyPrompt").addEventListener("click", () =>
   postControl({ prompt: document.getElementById("sPrompt").value }));
+
+// --- Source type hints + file picker ------------------------------------------
+const sourceTypeEl = document.getElementById("sourceType");
+const sourceNameEl = document.getElementById("sourceName");
+const sourceHintEl = document.getElementById("sourceHint");
+const filePickEl = document.getElementById("filePick");
+const recentFilesEl = document.getElementById("recentFiles");
+
+const SOURCE_HINTS = {
+  webcam: "webcam index (0, 1, …)",
+  ndi: "NDI sender name (blank = first found)",
+  spout: "Spout sender name",
+  file: "video file path — use Browse… (loops forever)"
+};
+const SOURCE_DEFAULTS = { webcam: "0", ndi: "", spout: "StreamForge", file: "" };
+
+async function loadRecentFiles() {
+  try {
+    const res = await fetch("/api/files");
+    const data = await res.json();
+    recentFilesEl.innerHTML = "";
+    const ph = document.createElement("option");
+    ph.value = ""; ph.textContent = (data.files && data.files.length) ? "recent…" : "no files in TestFile/";
+    recentFilesEl.appendChild(ph);
+    for (const f of (data.files || [])) {
+      const o = document.createElement("option");
+      o.value = f.path; o.textContent = f.name;
+      recentFilesEl.appendChild(o);
+    }
+  } catch (e) { /* keep the placeholder */ }
+}
+
+function updateSourceType() {
+  const t = sourceTypeEl.value;
+  sourceHintEl.textContent = SOURCE_HINTS[t] || "";
+  const isFile = t === "file";
+  filePickEl.style.display = isFile ? "" : "none";
+  if (isFile) {
+    if (sourceNameEl.value === "0") sourceNameEl.value = "";  // clear the webcam default
+    loadRecentFiles();
+  } else {
+    sourceNameEl.value = SOURCE_DEFAULTS[t] ?? "";
+  }
+}
+sourceTypeEl.addEventListener("change", updateSourceType);
+updateSourceType();
+
+document.getElementById("browse").addEventListener("click", async () => {
+  showMessage("Opening file dialog on the server machine…");
+  try {
+    const data = await postJson("/api/browse", {});
+    if (data.path) { sourceNameEl.value = data.path; showMessage(`Selected: ${data.path}`); }
+    else showMessage(data.error ? `Browse failed: ${data.error}` : "No file selected.");
+  } catch (e) { showMessage(e.message); }
+});
+
+recentFilesEl.addEventListener("change", () => {
+  if (recentFilesEl.value) sourceNameEl.value = recentFilesEl.value;
+});

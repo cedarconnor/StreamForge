@@ -251,12 +251,18 @@ class StreamForgeRunner:
                 self._timestamps.append(time.perf_counter())
             sink.send(out)
 
+        def on_input(frame) -> None:
+            with self._lock:
+                self._latest_input = frame  # keep the Input preview live during the run
+
         if temporal:
             worker = TemporalInferenceWorker(source, runtime, fb, control=self._control,
-                                             on_timing=timing, flow=flow, filler=filler)
+                                             on_timing=timing, flow=flow, filler=filler,
+                                             on_input=on_input)
         else:
             worker = InferenceWorker(source, runtime, fb, params_provider=self._control.params,
-                                     on_timing=timing, flow=flow, filler=filler)
+                                     on_timing=timing, flow=flow, filler=filler,
+                                     on_input=on_input)
         clock = RealtimeClock(config.fps, fb, emit, filler=filler)
         self._worker = worker
         self._clock = clock

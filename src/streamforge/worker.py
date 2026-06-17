@@ -26,6 +26,7 @@ class InferenceWorker:
         on_timing: Optional[Callable[[str, float], None]] = None,
         flow=None,
         filler=None,
+        on_input: Optional[Callable] = None,
     ):
         self.source = source
         self.runtime = runtime
@@ -34,6 +35,7 @@ class InferenceWorker:
         self.on_timing = on_timing
         self.flow = flow
         self.filler = filler
+        self.on_input = on_input
         self._prev_src = None
         self._t: Optional[threading.Thread] = None
         self._running = False
@@ -52,6 +54,8 @@ class InferenceWorker:
                 f = self.source.read()
                 if f is None:
                     break
+                if self.on_input is not None:
+                    self.on_input(f)  # live Input preview tracks the source, not the validate frame
                 t0 = time.perf_counter()
                 out = self.runtime.restyle(f.tensor, self.params_provider())
                 if torch.cuda.is_available():

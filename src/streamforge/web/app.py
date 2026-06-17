@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
@@ -53,6 +55,50 @@ class ControlIn(BaseModel):
     sink_token: bool | None = None
 
 
+VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv"}
+
+
+def _list_video_files() -> list[dict[str, str]]:
+    """Video files the File source can loop. Scans TestFile/ (recursively) and the
+    working dir (shallow), both relative to wherever the server was launched."""
+    base = Path.cwd()
+    roots = [(base / "TestFile", True), (base, False)]
+    seen: set[str] = set()
+    out: list[dict[str, str]] = []
+    for root, recursive in roots:
+        if not root.is_dir():
+            continue
+        for p in (root.rglob("*") if recursive else root.glob("*")):
+            if p.suffix.lower() in VIDEO_EXTS and p.is_file():
+                rp = str(p.resolve())
+                if rp not in seen:
+                    seen.add(rp)
+                    out.append({"name": p.name, "path": rp})
+    out.sort(key=lambda d: d["name"].lower())
+    return out[:100]
+
+
+def _native_pick_file() -> dict[str, str]:
+    """Open a native OS file dialog (in a subprocess so it never touches the server's
+    event loop / Tk main-thread rules) and return the chosen absolute path. Works because
+    the console is a localhost tool — the dialog opens on the same machine as the browser."""
+    code = (
+        "import tkinter as tk\n"
+        "from tkinter import filedialog\n"
+        "r = tk.Tk(); r.withdraw(); r.attributes('-topmost', True)\n"
+        "p = filedialog.askopenfilename(title='StreamForge - select a video to loop',\n"
+        "    filetypes=[('Video', '*.mp4 *.mov *.mkv *.avi *.webm *.m4v *.mpg *.mpeg *.wmv'),\n"
+        "               ('All files', '*.*')])\n"
+        "r.destroy()\n"
+        "print(p or '')\n"
+    )
+    try:
+        res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=300)
+        return {"path": res.stdout.strip()}
+    except Exception as e:  # subprocess/timeout/Tk failure -> report, don't crash the server
+        return {"path": "", "error": f"{type(e).__name__}: {e}"}
+
+
 def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
     app = FastAPI(title="StreamForge Operator Console")
     app.state.runner = runner or StreamForgeRunner()
@@ -79,6 +125,14 @@ def create_app(runner: StreamForgeRunner | None = None) -> FastAPI:
         except Exception as e:
             spout = [{"type": "spout", "name": "", "label": f"Spout unavailable: {e}", "disabled": True}]
         return {"sources": webcam + ndi + spout}
+
+    @app.get("/api/files")
+    def files():
+        return {"files": _list_video_files()}
+
+    @app.post("/api/browse")
+    def browse():
+        return _native_pick_file()
 
     @app.post("/api/validate")
     def validate(config: RunnerConfigIn):

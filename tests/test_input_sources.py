@@ -111,14 +111,31 @@ def test_ndi_source_reads_rgba_frame_and_reports_status(monkeypatch):
 
 
 class FakeSpoutReceiver:
+    """Models SpoutGL: a GL context is created, and the sender's size is only known after the
+    first receiveImage()+isUpdated() — so the source must resize its buffer then capture."""
+
     def __init__(self):
         self.released = False
+        self.gl_open = False
+        self._reads = 0
 
     def getSenderList(self):
         return ["Camera A"]
 
+    def createOpenGL(self):
+        self.gl_open = True
+        return True
+
+    def closeOpenGL(self):
+        self.gl_open = False
+
     def setReceiverName(self, name):
         return True
+
+    def isUpdated(self):
+        # real SpoutGL reports a new/changed sender once, right after the first receive
+        self._reads += 1
+        return self._reads == 1
 
     def getSenderWidth(self):
         return 6
@@ -128,7 +145,8 @@ class FakeSpoutReceiver:
 
     def receiveImage(self, buffer, gl_format, invert, host_fbo):
         arr = np.zeros((4, 6, 4), dtype=np.uint8)
-        buffer[:] = arr.tobytes()
+        if len(buffer) == arr.size:  # only fills a correctly-sized buffer, like the real API
+            buffer[:] = arr.tobytes()
         return True
 
     def releaseReceiver(self):

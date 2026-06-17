@@ -36,6 +36,18 @@ dd { margin: 0; text-align: right; }
 pre { max-width: 100%; max-height: 360px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--warn); }
 @media (max-width: 1050px) { .console { grid-template-columns: 1fr; } .previews { grid-template-columns: 1fr; } }
 
+.guide { border: 1px solid var(--line); border-radius: 8px; background: var(--panel); margin-bottom: 16px; padding: 4px 12px; font-size: 12px; }
+.guide summary { cursor: pointer; color: var(--accent); font-weight: 600; padding: 6px 0; }
+.guide ol { margin: 4px 0 8px; padding-left: 18px; color: var(--muted); line-height: 1.5; }
+.guide li { margin: 3px 0; }
+.guide b { color: var(--text); font-weight: 600; }
+.guide code { background: #0c0e10; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; font-size: 11px; }
+.guide .hint { display: block; color: var(--muted); margin: 6px 0 8px; line-height: 1.5; }
+.file-pick { margin: -6px 0 12px; }
+.file-row { display: flex; gap: 6px; }
+.file-row button { width: auto; white-space: nowrap; padding: 9px 12px; }
+.file-row select { flex: 1; min-width: 0; }
+
 .live { border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; padding: 6px 12px 2px; }
 .live[disabled] { opacity: 0.45; }
 .live legend { padding: 0 6px; font-weight: 600; color: var(--text); font-size: 12px; }
