@@ -11,7 +11,10 @@ function config() {
     seconds: 0,
     backend: document.getElementById("backend").value,
     cached_blocks: +document.getElementById("sCached").value,
-    sink_token: document.getElementById("sSink").checked
+    sink_token: document.getElementById("sSink").checked,
+    compile_transformer: document.getElementById("compile").checked,
+    tiny_vae: document.getElementById("tinyVae").checked,
+    fill: document.getElementById("fill").checked ? "warp" : "off"
   };
 }
 

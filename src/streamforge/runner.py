@@ -293,6 +293,17 @@ class StreamForgeRunner:
         self._runtime = None
         self._clock_thread = None
         self._running = False
+        # Release the runtime's GPU memory so repeated Start/Stop cycles don't accumulate VRAM
+        # (each FLUX/SANA load is ~13-27 GB; without this they stack until the card is full and
+        # inference slows to a crawl under memory pressure).
+        try:
+            import gc
+
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
 
     def _control_snapshot(self) -> dict | None:
         if self._control is None:

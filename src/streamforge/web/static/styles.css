@@ -48,6 +48,12 @@ pre { max-width: 100%; max-height: 360px; overflow: auto; white-space: pre-wrap;
 .file-row button { width: auto; white-space: nowrap; padding: 9px 12px; }
 .file-row select { flex: 1; min-width: 0; }
 
+.perf { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 12px; padding: 4px 12px 8px; }
+.perf legend { padding: 0 6px; font-weight: 600; color: var(--text); font-size: 12px; }
+.perf label.check { display: flex; align-items: center; gap: 8px; margin: 8px 0; color: var(--muted); }
+.perf label.check input { width: auto; }
+.perf .hint { color: var(--muted); font-size: 11px; font-weight: 400; }
+
 .live { border: 1px solid var(--line); border-radius: 8px; margin-top: 12px; padding: 6px 12px 2px; }
 .live[disabled] { opacity: 0.45; }
 .live legend { padding: 0 6px; font-weight: 600; color: var(--text); font-size: 12px; }

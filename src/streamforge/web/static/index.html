@@ -69,6 +69,18 @@
           <option>SANA_BALANCED</option>
         </select>
       </label>
+      <fieldset class="perf">
+        <legend>Performance (FLUX) <small class="hint">apply on next Start</small></legend>
+        <label class="check" title="torch.compile the transformer (Triton). Big speedup once warm, but the first ~30–60 s after Start are slow while it compiles.">
+          <input id="compile" type="checkbox"> Compile transformer <small class="hint">slow first start</small>
+        </label>
+        <label class="check" title="Decode with the tiny TAEF2 VAE instead of the full FLUX VAE — noticeably faster, slightly lower fidelity.">
+          <input id="tinyVae" type="checkbox"> Tiny VAE <small class="hint">faster decode</small>
+        </label>
+        <label class="check" title="Optical-flow frame-fill: the output clock holds show framerate by warping between AI frames, so motion looks smooth even when the model runs below real-time. Adds GPU memory (RAFT).">
+          <input id="fill" type="checkbox"> Frame-fill <small class="hint">smooth output, +VRAM</small>
+        </label>
+      </fieldset>
       <div class="buttons">
         <button id="validate" title="Open the source once and report its resolution plus the internal/output size. Run this before Start.">Validate</button>
         <button id="start" title="Load the model and begin streaming. The first start loads/downloads weights (~10–30 s).">Start</button>
