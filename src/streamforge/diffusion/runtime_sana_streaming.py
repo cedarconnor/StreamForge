@@ -12,7 +12,17 @@ Design notes:
 """
 from __future__ import annotations
 
+import threading
+
 from streamforge.diffusion.runtime_base import TemporalDiffusionRuntime
+
+# accelerate's process-wide state singleton (PartialState/AcceleratorState._shared_state) is NOT
+# thread-safe on its FIRST init: two threads constructing Accelerator() concurrently can let one
+# read `device` before the other finishes populating it -> `AttributeError: 'NoneType' has no
+# attribute 'type'` at accelerator.py:589. load_once() runs on the worker thread, and a re-Start
+# while the first ~30s load is still in flight spawns a second worker (runner.stop() only joins
+# with a 5s timeout), so two load_once() race. Serialize the init across all instances.
+_ACCEL_INIT_LOCK = threading.Lock()
 
 SPATIAL_STRIDE = 32      # vae_stride[1:] — width/height must be divisible by this
 TEMPORAL_STRIDE = 8      # vae_stride[0] — num_frames must satisfy (n-1) % 8 == 0
@@ -89,8 +99,9 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
 
         config = pyrallis.parse(config_class=S.InferenceConfig, config_path=cfg_path, args=[])
         self._config = config
-        accelerator = Accelerator(mixed_precision=config.model.mixed_precision)
-        self.device = accelerator.device
+        with _ACCEL_INIT_LOCK:  # serialize accelerate's racy first-init (see module top)
+            accelerator = Accelerator(mixed_precision=config.model.mixed_precision)
+            self.device = accelerator.device
         self._weight_dtype = get_weight_dtype(config.model.mixed_precision)
         self.vae_dtype = get_weight_dtype(config.vae.weight_dtype)
         self._vae_stride = config.vae.vae_stride
