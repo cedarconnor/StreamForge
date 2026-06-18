@@ -10,7 +10,7 @@
   <main class="console">
     <aside class="rail">
       <h1>StreamForge</h1>
-      <details class="guide" open>
+      <details class="guide">
         <summary>Quickstart — how to run</summary>
         <ol>
           <li>Pick <b>Input Type</b> + Source (Webcam <code>0</code>, or <b>Browse…</b> to a video File — it loops).</li>
@@ -22,17 +22,19 @@
         </ol>
         <p class="hint">Recommended first run: <b>File</b>/<b>Webcam</b> · Backend <b>FLUX</b> · Aspect <b>Auto preserve</b> · Preset <b>BALANCED</b> · Steps <b>4</b> · Ref&nbsp;~<b>0.55</b>. In <b>Run Health</b>, Emitted should climb and Jitter stay low (single-digit&nbsp;ms).</p>
       </details>
-      <label>Input Type
-        <select id="sourceType" title="Where frames come from. Webcam = USB/built-in camera. NDI = a video stream on the local network. Spout = a GPU texture shared by another Windows app. File = a video file that loops forever.">
-          <option value="webcam">Webcam</option>
-          <option value="ndi">NDI</option>
-          <option value="spout">Spout</option>
-          <option value="file">File</option>
-        </select>
-      </label>
-      <label>Source <small id="sourceHint" class="hint">webcam index (0, 1, …)</small>
-        <input id="sourceName" value="0" title="Identifies the source: a webcam index (0, 1, …), an NDI/Spout sender name, or a video file path.">
-      </label>
+      <div class="row2">
+        <label>Input Type
+          <select id="sourceType" title="Where frames come from. Webcam = USB/built-in camera. NDI = a video stream on the local network. Spout = a GPU texture shared by another Windows app. File = a video file that loops forever.">
+            <option value="webcam">Webcam</option>
+            <option value="ndi">NDI</option>
+            <option value="spout">Spout</option>
+            <option value="file">File</option>
+          </select>
+        </label>
+        <label>Source <small id="sourceHint" class="hint">index / name</small>
+          <input id="sourceName" value="0" title="Identifies the source: a webcam index (0, 1, …), an NDI/Spout sender name, or a video file path.">
+        </label>
+      </div>
       <div id="filePick" class="file-pick" style="display:none">
         <div class="file-row">
           <button id="browse" type="button" title="Open a native file dialog on this PC to pick a video. The chosen clip loops forever.">Browse…</button>
@@ -41,20 +43,22 @@
           </select>
         </div>
       </div>
-      <label>Aspect Policy
-        <select id="inRes" title="Resolution the model runs at internally. Auto preserve keeps the source aspect at ≤384 px (fast, recommended). Native uses the full source size (slower). Fixed sizes crop to that aspect. Lower = faster.">
-          <option value="auto">Auto preserve</option>
-          <option value="native">Native</option>
-          <option value="384x288">4:3 384x288</option>
-          <option value="512x288">16:9 512x288 crop</option>
-        </select>
-      </label>
-      <label>Backend
-        <select id="backend" title="FLUX = per-frame img2img restyle, no temporal memory (run with start-flux.bat / .venv). SANA-Streaming = temporal video model with frame-to-frame coherence (run with start-sana.bat / .venv-sana).">
-          <option value="flux">FLUX (img2img)</option>
-          <option value="sana_streaming">SANA-Streaming (temporal)</option>
-        </select>
-      </label>
+      <div class="row2">
+        <label>Aspect Policy
+          <select id="inRes" title="Resolution the model runs at internally. Auto preserve keeps the source aspect at ≤384 px (fast, recommended). Native uses the full source size (slower). Fixed sizes crop to that aspect. Lower = faster.">
+            <option value="auto">Auto preserve</option>
+            <option value="native">Native</option>
+            <option value="384x288">4:3 384x288</option>
+            <option value="512x288">16:9 512x288 crop</option>
+          </select>
+        </label>
+        <label>Backend
+          <select id="backend" title="FLUX = per-frame img2img restyle, no temporal memory (run with start-flux.bat / .venv). SANA-Streaming = temporal video model with frame-to-frame coherence (run with start-sana.bat / .venv-sana).">
+            <option value="flux">FLUX (img2img)</option>
+            <option value="sana_streaming">SANA-Streaming (temporal)</option>
+          </select>
+        </label>
+      </div>
       <label>Prompt
         <textarea id="prompt" title="The style/scene description applied to every frame. Set this before Validate/Start; you can also change it live below while running.">vivid oil painting, thick impasto brushstrokes</textarea>
       </label>
@@ -69,8 +73,8 @@
           <option>SANA_BALANCED</option>
         </select>
       </label>
-      <fieldset class="perf">
-        <legend>Performance <small class="hint">apply on next Start</small></legend>
+      <details class="perf">
+        <summary>Performance <small class="hint">apply on next Start</small></summary>
         <label class="check" title="torch.compile the transformer (Triton). Big speedup once warm, but the first ~30–60 s after Start are slow while it compiles.">
           <input id="compile" type="checkbox"> Compile transformer <small class="hint">FLUX · slow first start</small>
         </label>
@@ -80,7 +84,7 @@
         <label class="check" title="Optical-flow frame-fill: the output clock holds show framerate by warping between AI frames, so motion looks smooth even when the model runs below real-time. For SANA it bridges the gap between chunk bursts (and absorbs jitter), so steps=4 'quality' mode stays smooth. Adds GPU memory (RAFT).">
           <input id="fill" type="checkbox"> Frame-fill <small class="hint">FLUX + SANA · smooth, +VRAM</small>
         </label>
-      </fieldset>
+      </details>
       <div class="buttons">
         <button id="validate" title="Open the source once and report its resolution plus the internal/output size. Run this before Start.">Validate</button>
         <button id="start" title="Load the model and begin streaming. The first start loads/downloads weights (~10–30 s).">Start</button>
