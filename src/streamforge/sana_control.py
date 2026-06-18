@@ -55,8 +55,12 @@ class SanaControl:
 
     @classmethod
     def preset(cls, name: str) -> "SanaControl":
+        # The two presets differ only by `step` — the profiler showed steps is the real speed lever
+        # (DiT is 55-67% of a chunk and scales with steps+1 forwards), while num_cached_blocks is
+        # minor. Both keep cached=2 for temporal coherence. FAST (step=2) is real-time (1.14x);
+        # BALANCED (step=4) is the higher-quality 0.84x path (pair it with Frame-fill).
         table = {
-            "SANA_FAST": dict(step=2, num_cached_blocks=1),
+            "SANA_FAST": dict(step=2, num_cached_blocks=2),
             "SANA_BALANCED": dict(step=4, num_cached_blocks=2),
         }
         return cls(**table[name])

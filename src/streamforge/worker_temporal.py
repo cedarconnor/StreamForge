@@ -52,7 +52,8 @@ class TemporalInferenceWorker:
 
     def __init__(self, source, runtime, frame_buffer: QueueFrameBuffer,
                  control=None, on_timing: Optional[Callable[[str, float], None]] = None,
-                 flow=None, filler=None, on_input: Optional[Callable] = None):
+                 flow=None, filler=None, on_input: Optional[Callable] = None,
+                 display_fps: float = 30.0):
         self.source = source
         self.runtime = runtime
         self.fb = frame_buffer
@@ -61,6 +62,8 @@ class TemporalInferenceWorker:
         self.flow = flow
         self.filler = filler
         self.on_input = on_input
+        self.display_fps = float(display_fps)
+        self._prev_src = None
         self._t: Optional[threading.Thread] = None
         self._running = False
 
@@ -93,6 +96,17 @@ class TemporalInferenceWorker:
                 ms = (time.perf_counter() - t0) * 1000.0
                 for out in outs:
                     self.fb.publish(f.with_tensor(out))
+                # Frame-fill anchor: a chunk produces N real frames in one ~burst, so the queue
+                # starves between chunks. Anchor the filler to the chunk's LAST (freshest) frame
+                # with the latest per-input-frame motion; the clock warps it forward to bridge the
+                # gap. anchor_t is offset to ~when that last frame will display (the queue drains
+                # one per tick at display_fps), so warp dt starts at 0 there, not at emit time.
+                if outs and self.flow is not None and self.filler is not None \
+                        and self._prev_src is not None:
+                    velocity = self.flow.estimate(self._prev_src, f.tensor)
+                    anchor_t = time.perf_counter() + max(0, len(outs) - 1) / self.display_fps
+                    self.filler.set_anchor(outs[-1], velocity, anchor_t)
+                self._prev_src = f.tensor  # keep prev as the immediately-preceding input frame
                 if outs and self.on_timing:
                     self.on_timing("infer", ms)
         finally:

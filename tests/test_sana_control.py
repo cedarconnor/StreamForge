@@ -2,8 +2,10 @@ from streamforge.sana_control import SanaControl, SanaLiveControl
 
 
 def test_preset_defaults():
+    # Presets differ only by `step` (the real speed lever per the profiler); both keep cached=2
+    # for temporal coherence. FAST (step=2) is real-time; BALANCED (step=4) is the quality path.
     assert SanaControl.preset("SANA_FAST").step == 2
-    assert SanaControl.preset("SANA_FAST").num_cached_blocks == 1
+    assert SanaControl.preset("SANA_FAST").num_cached_blocks == 2
     assert SanaControl.preset("SANA_BALANCED").step == 4
     assert SanaControl.preset("SANA_BALANCED").num_cached_blocks == 2
 

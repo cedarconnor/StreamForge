@@ -222,7 +222,10 @@ class StreamForgeRunner:
         self._mode = config.mode
         temporal = getattr(runtime, "temporal", False)
         if temporal:
-            sana_preset = config.preset if config.preset.startswith("SANA") else "SANA_BALANCED"
+            # Default a non-SANA preset to SANA_FAST (steps=2): the profiler shows steps=2 clears
+            # real-time (1.14x) while steps=4 is 0.84x (behind). Operators who want the higher-
+            # quality 4-step path select SANA_BALANCED explicitly.
+            sana_preset = config.preset if config.preset.startswith("SANA") else "SANA_FAST"
             self._control = SanaLiveControl(SanaControl.preset(sana_preset))
             fb = QueueFrameBuffer(maxlen=64)   # holds a couple of chunk bursts (~24 frames each)
         else:
@@ -235,7 +238,15 @@ class StreamForgeRunner:
             from streamforge.fill.flow import RaftFlow
             dev = "cuda" if torch.cuda.is_available() else "cpu"
             flow = RaftFlow(device=dev, max_side=config.flow_max_side)
-            filler = FrameFiller(max_extrap_ms=config.max_extrap_ms)
+            if temporal:
+                # SANA emits a burst of frames per chunk and starves the queue between chunks, so
+                # bridge a longer gap than FLUX's per-frame fill. Anchors arrive per-chunk but the
+                # flow is per-input-frame, so pin the warp scale to the display rate (fixed_fps);
+                # clamp displacement so a long extrapolation can't smear the frame wildly.
+                filler = FrameFiller(max_extrap_ms=max(config.max_extrap_ms, 400.0),
+                                     fixed_fps=float(config.fps), max_disp=64.0)
+            else:
+                filler = FrameFiller(max_extrap_ms=config.max_extrap_ms)
 
         def timing(stage: str, ms: float) -> None:
             if stage == "infer":
@@ -260,7 +271,7 @@ class StreamForgeRunner:
         if temporal:
             worker = TemporalInferenceWorker(source, runtime, fb, control=self._control,
                                              on_timing=timing, flow=flow, filler=filler,
-                                             on_input=on_input)
+                                             on_input=on_input, display_fps=float(config.fps))
         else:
             worker = InferenceWorker(source, runtime, fb, params_provider=self._control.params,
                                      on_timing=timing, flow=flow, filler=filler,

@@ -2,6 +2,7 @@ import torch
 from streamforge.clock import FrameBuffer
 from streamforge.frame import GpuFrame
 from streamforge.worker import InferenceWorker
+from streamforge.worker_temporal import QueueFrameBuffer, TemporalInferenceWorker
 
 
 class _StubSource:
@@ -56,5 +57,41 @@ def test_worker_without_fill_still_publishes():
     frames = [_frame(0)]
     fb = FrameBuffer()
     w = InferenceWorker(_StubSource(frames), _StubRuntime(), fb, params_provider=lambda: None)
+    _run_to_exhaustion(w)
+    assert fb.get_latest() is not None
+
+
+# --- temporal (SANA) frame-fill --------------------------------------------------------------
+
+class _StubTemporalRuntime:
+    """Emits a chunk of 2 frames every 2 input frames (else buffers -> [])."""
+    FIRST = torch.full((1, 3, 4, 4), 0.1)
+    LAST = torch.full((1, 3, 4, 4), 0.9)
+
+    def __init__(self): self._n = 0
+    def load_once(self): pass
+    def reset_state(self): pass
+    def push_frame(self, tensor, params=None):
+        self._n += 1
+        return [self.FIRST, self.LAST] if self._n % 2 == 0 else []
+
+
+def test_temporal_worker_sets_anchor_to_last_chunk_frame_on_emit():
+    frames = [_frame(i) for i in range(4)]          # -> 2 chunks emitted
+    fb = QueueFrameBuffer(); flow = _StubFlow(); filler = _RecordingFiller()
+    w = TemporalInferenceWorker(_StubSource(frames), _StubTemporalRuntime(), fb,
+                                control=None, flow=flow, filler=filler, display_fps=30.0)
+    _run_to_exhaustion(w)
+    assert flow.calls == 2                           # one flow estimate per emitted chunk
+    assert len(filler.anchors) == 2
+    styled, vel, t = filler.anchors[0]
+    assert styled is _StubTemporalRuntime.LAST       # anchor = LAST frame of the chunk (freshest)
+    assert vel.shape == (1, 2, 2, 2)
+
+
+def test_temporal_worker_without_fill_still_publishes():
+    frames = [_frame(0), _frame(1)]                  # -> 1 chunk
+    fb = QueueFrameBuffer()
+    w = TemporalInferenceWorker(_StubSource(frames), _StubTemporalRuntime(), fb, control=None)
     _run_to_exhaustion(w)
     assert fb.get_latest() is not None

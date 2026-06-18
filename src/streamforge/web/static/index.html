@@ -70,15 +70,15 @@
         </select>
       </label>
       <fieldset class="perf">
-        <legend>Performance (FLUX) <small class="hint">apply on next Start</small></legend>
+        <legend>Performance <small class="hint">apply on next Start</small></legend>
         <label class="check" title="torch.compile the transformer (Triton). Big speedup once warm, but the first ~30–60 s after Start are slow while it compiles.">
-          <input id="compile" type="checkbox"> Compile transformer <small class="hint">slow first start</small>
+          <input id="compile" type="checkbox"> Compile transformer <small class="hint">FLUX · slow first start</small>
         </label>
         <label class="check" title="Decode with the tiny TAEF2 VAE instead of the full FLUX VAE — noticeably faster, slightly lower fidelity.">
-          <input id="tinyVae" type="checkbox"> Tiny VAE <small class="hint">faster decode</small>
+          <input id="tinyVae" type="checkbox"> Tiny VAE <small class="hint">FLUX · faster decode</small>
         </label>
-        <label class="check" title="Optical-flow frame-fill: the output clock holds show framerate by warping between AI frames, so motion looks smooth even when the model runs below real-time. Adds GPU memory (RAFT).">
-          <input id="fill" type="checkbox"> Frame-fill <small class="hint">smooth output, +VRAM</small>
+        <label class="check" title="Optical-flow frame-fill: the output clock holds show framerate by warping between AI frames, so motion looks smooth even when the model runs below real-time. For SANA it bridges the gap between chunk bursts (and absorbs jitter), so steps=4 'quality' mode stays smooth. Adds GPU memory (RAFT).">
+          <input id="fill" type="checkbox"> Frame-fill <small class="hint">FLUX + SANA · smooth, +VRAM</small>
         </label>
       </fieldset>
       <div class="buttons">
@@ -118,9 +118,9 @@
       <fieldset id="sanaLive" class="live" disabled style="display:none" title="SANA temporal live controls. HOT knobs apply instantly; knobs marked 'resyncs' rebuild the temporal state (a brief flash).">
         <legend>SANA Live Control</legend>
         <label>Steps
-          <select id="sSteps" title="Denoise steps per chunk. 2 = faster, 4 = higher quality. Applies live.">
-            <option value="2">2 (fast)</option>
-            <option value="4" selected>4 (balanced)</option>
+          <select id="sSteps" title="Denoise steps per chunk — the main speed lever (the DiT is ~2/3 of each chunk and runs steps+1 forwards). 2 = real-time (~1.14x); 4 = higher quality but ~0.84x of real-time (pair with Frame-fill). Applies live.">
+            <option value="2" selected>2 (real-time)</option>
+            <option value="4">4 (quality)</option>
           </select>
         </label>
         <label>Flow shift <span id="sFlowVal">8.0</span>
