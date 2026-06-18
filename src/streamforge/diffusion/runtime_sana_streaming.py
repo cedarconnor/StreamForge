@@ -16,12 +16,12 @@ import threading
 
 from streamforge.diffusion.runtime_base import TemporalDiffusionRuntime
 
-# accelerate's process-wide state singleton (PartialState/AcceleratorState._shared_state) is NOT
-# thread-safe on its FIRST init: two threads constructing Accelerator() concurrently can let one
-# read `device` before the other finishes populating it -> `AttributeError: 'NoneType' has no
-# attribute 'type'` at accelerator.py:589. load_once() runs on the worker thread, and a re-Start
-# while the first ~30s load is still in flight spawns a second worker (runner.stop() only joins
-# with a 5s timeout), so two load_once() race. Serialize the init across all instances.
+# load_once() runs on the worker thread, and a re-Start while the first ~30s load is still in
+# flight spawns a SECOND worker (runner.stop() only joins with a 5s timeout), so two load_once()
+# run concurrently. accelerate/transformers are not thread-safe across that: the Accelerator
+# state singleton races (one reads device=None -> AttributeError at accelerator.py:589) and the
+# big-model meta-device materialization races (-> "Cannot copy out of meta tensor" in the VAE /
+# text encoder). This lock serializes the WHOLE load across all instances so loads never overlap.
 _ACCEL_INIT_LOCK = threading.Lock()
 
 SPATIAL_STRIDE = 32      # vae_stride[1:] — width/height must be divisible by this
@@ -99,26 +99,31 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
 
         config = pyrallis.parse(config_class=S.InferenceConfig, config_path=cfg_path, args=[])
         self._config = config
-        with _ACCEL_INIT_LOCK:  # serialize accelerate's racy first-init (see module top)
+        # Serialize the ENTIRE model load, not just Accelerator: accelerate/transformers load big
+        # models on the meta device then materialize, so two concurrent load_once() (a re-Start
+        # before the first ~30s load finishes) corrupt each other's shared init -> Accelerator
+        # device=None at one site OR "Cannot copy out of meta tensor" in the text encoder at the
+        # next. One global lock over the whole load makes the two runs strictly sequential.
+        with _ACCEL_INIT_LOCK:
             accelerator = Accelerator(mixed_precision=config.model.mixed_precision)
             self.device = accelerator.device
-        self._weight_dtype = get_weight_dtype(config.model.mixed_precision)
-        self.vae_dtype = get_weight_dtype(config.vae.weight_dtype)
-        self._vae_stride = config.vae.vae_stride
-        self.vae_latent_dim = config.vae.vae_latent_dim
-        latent_size = config.model.image_size // config.vae.vae_downsample_rate
-        self._flow_shift = (config.scheduler.inference_flow_shift
-                            if config.scheduler.inference_flow_shift is not None
-                            else config.scheduler.flow_shift)
+            self._weight_dtype = get_weight_dtype(config.model.mixed_precision)
+            self.vae_dtype = get_weight_dtype(config.vae.weight_dtype)
+            self._vae_stride = config.vae.vae_stride
+            self.vae_latent_dim = config.vae.vae_latent_dim
+            latent_size = config.model.image_size // config.vae.vae_downsample_rate
+            self._flow_shift = (config.scheduler.inference_flow_shift
+                                if config.scheduler.inference_flow_shift is not None
+                                else config.scheduler.flow_shift)
 
-        self._vae = get_vae(config.vae.vae_type, config.vae.vae_pretrained,
-                            device=self.device, dtype=self.vae_dtype, config=config.vae)
-        self._tokenizer, text_encoder = get_tokenizer_and_text_encoder(
-            config.text_encoder.text_encoder_name, device=self.device)
-        model = S.load_model(config, latent_size, self.device, self._weight_dtype, self.model_path)
-        self._model, self._text_encoder = accelerator.prepare(model, text_encoder)
-        self._neg_embeds, _ = S.encode_prompt(self._tokenizer, self._text_encoder, "",
-                                              config, self.device, use_chi_prompt=False)
+            self._vae = get_vae(config.vae.vae_type, config.vae.vae_pretrained,
+                                device=self.device, dtype=self.vae_dtype, config=config.vae)
+            self._tokenizer, text_encoder = get_tokenizer_and_text_encoder(
+                config.text_encoder.text_encoder_name, device=self.device)
+            model = S.load_model(config, latent_size, self.device, self._weight_dtype, self.model_path)
+            self._model, self._text_encoder = accelerator.prepare(model, text_encoder)
+            self._neg_embeds, _ = S.encode_prompt(self._tokenizer, self._text_encoder, "",
+                                                  config, self.device, use_chi_prompt=False)
         self._engine_cls = SanaStreamingEngine
         self._base_chunk_frames = 24 // self._vae_stride[0]
         # causal VAE requires (N-1) % temporal_stride == 0; this yields exactly base_chunk_frames
