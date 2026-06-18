@@ -82,6 +82,7 @@ class RunnerConfig:
     backend: str = "flux"            # "flux" (EagerRuntime) | "sana_streaming" (temporal)
     cached_blocks: int = 2           # SANA: GDN/KV window
     sink_token: bool = True          # SANA: attention-sink stability
+    resync_every: int = 8            # SANA: re-anchor temporal state every N chunks (0 = off)
 
 
 def default_source_factory(config: RunnerConfig):
@@ -118,6 +119,7 @@ def default_runtime_factory(config: RunnerConfig):
             internal_hw=_parse_internal_hw(config),
             num_cached_blocks=config.cached_blocks,
             sink_token=config.sink_token,
+            resync_every=config.resync_every,
         )
     if config.backend == "flux":
         from streamforge.diffusion.runtime_eager import EagerRuntime
@@ -312,11 +314,13 @@ class StreamForgeRunner:
         d["prompt"] = self._prompt
         d["mode"] = self._mode
         d["backend"] = self._config.backend if self._config else "flux"
+        if getattr(self._runtime, "temporal", False):
+            d["resync_every"] = getattr(self._runtime, "resync_every", 0)
         return d
 
     def apply_control(self, *, ref_strength=None, text_magnitude=None, steps=None,
                       seed=None, prompt=None, mode=None, flow_shift=None, motion_score=None,
-                      num_cached_blocks=None, sink_token=None) -> dict:
+                      num_cached_blocks=None, sink_token=None, resync_every=None) -> dict:
         if self._control is None or self._runtime is None:
             return {}
         if getattr(self._runtime, "temporal", False):
@@ -326,6 +330,8 @@ class StreamForgeRunner:
                 self._runtime.num_cached_blocks = int(num_cached_blocks)
             if sink_token is not None:
                 self._runtime.sink_token = bool(sink_token)
+            if resync_every is not None:  # HOT: just changes when the next auto re-anchor fires
+                self._runtime.resync_every = max(0, int(resync_every))
             self._control.apply(step=steps, flow_shift=flow_shift, motion_score=motion_score,
                                 seed=seed, num_cached_blocks=num_cached_blocks, sink_token=sink_token)
             if prompt is not None:

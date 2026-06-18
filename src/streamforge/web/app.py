@@ -34,6 +34,7 @@ class RunnerConfigIn(BaseModel):
     backend: str = "flux"
     cached_blocks: int = 2
     sink_token: bool = True
+    resync_every: int = 8
 
     def to_config(self) -> RunnerConfig:
         allowed = {f.name for f in fields(RunnerConfig)}
@@ -53,6 +54,7 @@ class ControlIn(BaseModel):
     motion_score: int | None = None
     num_cached_blocks: int | None = None
     sink_token: bool | None = None
+    resync_every: int | None = None
 
 
 VIDEO_EXTS = {".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v", ".mpg", ".mpeg", ".wmv"}

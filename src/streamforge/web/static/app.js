@@ -12,6 +12,7 @@ function config() {
     backend: document.getElementById("backend").value,
     cached_blocks: +document.getElementById("sCached").value,
     sink_token: document.getElementById("sSink").checked,
+    resync_every: +document.getElementById("sResync").value,
     compile_transformer: document.getElementById("compile").checked,
     tiny_vae: document.getElementById("tinyVae").checked,
     fill: document.getElementById("fill").checked ? "warp" : "off"
@@ -77,6 +78,10 @@ function seedControls(control) {
     document.getElementById("sSeed").value = control.seed;
     document.getElementById("sCached").value = control.num_cached_blocks;
     document.getElementById("sCachedVal").textContent = control.num_cached_blocks;
+    if (control.resync_every != null) {
+      document.getElementById("sResync").value = control.resync_every;
+      document.getElementById("sResyncVal").textContent = control.resync_every;
+    }
     document.getElementById("sSink").checked = control.sink_token;
     if (control.prompt) document.getElementById("sPrompt").value = control.prompt;
     return;
@@ -217,6 +222,11 @@ const sCachedEl = document.getElementById("sCached");
 sCachedEl.addEventListener("input", () => {
   document.getElementById("sCachedVal").textContent = sCachedEl.value;
   postControlDebounced({ num_cached_blocks: +sCachedEl.value });
+});
+const sResyncEl = document.getElementById("sResync");
+sResyncEl.addEventListener("input", () => {
+  document.getElementById("sResyncVal").textContent = sResyncEl.value;
+  postControlDebounced({ resync_every: +sResyncEl.value });  // HOT: no temporal-state rebuild
 });
 document.getElementById("sSink").addEventListener("change", () =>
   postControl({ sink_token: document.getElementById("sSink").checked }));

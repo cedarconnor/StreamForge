@@ -36,7 +36,8 @@ def validate_dims(width: int, height: int, num_frames: int) -> tuple[int, int, i
 class SanaStreamingRuntime(TemporalDiffusionRuntime):
     def __init__(self, internal_hw: tuple[int, int] | None = None, control=None,
                  config_path: str | None = None, model_path: str | None = None,
-                 num_cached_blocks: int = 2, sink_token: bool = True, default_steps: int = 4):
+                 num_cached_blocks: int = 2, sink_token: bool = True, default_steps: int = 4,
+                 resync_every: int = 8):
         # internal_hw is (height, width) like EagerRuntime; default 384x640 (both /32, real-time)
         self.internal_hw = internal_hw or (384, 640)
         self.control = control
@@ -45,6 +46,12 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
         self.num_cached_blocks = num_cached_blocks
         self.sink_token = sink_token
         self.default_steps = default_steps
+        # SANA-Streaming is validated for bounded clips (~969 frames ~= 40 chunks); driven as an
+        # UNBOUNDED live stream its RoPE positions + autoregressive KV state leave the training
+        # distribution and the output drifts to colored mush after ~10-15 chunks. Re-anchor the
+        # temporal state every `resync_every` chunks to hold coherence (0 disables -> raw drift).
+        self.resync_every = resync_every
+        self._chunk_count = 0
         self._loaded = False
         self._prompt = ""
         self.engine = None
@@ -135,6 +142,7 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
             cache_strategy="fixed_rope", efficient_cache=False, sink_token=self.sink_token)
         self.engine.begin(self._latent_h, self._latent_w)
         self._buf = []
+        self._chunk_count = 0
 
     # --- streaming -----------------------------------------------------------------------------
     def _fit(self, image_bchw):
@@ -161,6 +169,11 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
         window = self._buf[:self._pixel_per_chunk]
         self._buf = self._buf[self._pixel_per_chunk:]
         video = torch.cat(window, dim=0).permute(1, 0, 2, 3).unsqueeze(0).to(self.device, self.vae_dtype)
+        # StreamForge frames are [0,1] (GpuFrame contract); SANA's LTX2 VAE was trained on [-1,1]
+        # pixels (reference read_video: Normalize(0.5,0.5)). Feeding [0,1] gives off-distribution
+        # image_vae_embeds -> weak per-chunk V2V conditioning -> the stream drifts to abstract mush
+        # over a long run. Map to [-1,1] before encode.
+        video = video * 2.0 - 1.0
         embeds = self._vae_encode(self._config.vae.vae_type, self._vae, video,
                                   sample_posterior=False, device=self.device).to(self.vae_dtype)
         m = embeds.shape[2]
@@ -172,4 +185,11 @@ class SanaStreamingRuntime(TemporalDiffusionRuntime):
                             generator=self._gen, device=self.device)
         lat = self.engine.push_chunk(noise, embeds, steps).to(self.vae_dtype)
         samples = self._vae_decode(self._config.vae.vae_type, self._vae, lat)
-        return [samples[:, :, i].clamp(0, 1) for i in range(samples.shape[2])]
+        # decoder returns [-1,1] (reference save_video: 127.5*x+127.5); map back to the [0,1] the
+        # rest of StreamForge (preview/sink/fill) expects. clamp(0,1) alone would crush the whole
+        # negative half to black (under-exposed output).
+        out = [((samples[:, :, i] + 1.0) / 2.0).clamp(0, 1) for i in range(samples.shape[2])]
+        self._chunk_count += 1
+        if self.resync_every and self._chunk_count >= self.resync_every:
+            self.reset_state()  # re-anchor temporal state before drift accumulates (resets count)
+        return out

@@ -138,6 +138,10 @@
         <label>Cached blocks <span id="sCachedVal">2</span> <small class="hint">resyncs</small>
           <input id="sCached" type="range" min="1" max="4" step="1" value="2" title="GDN/KV temporal cache window (blocks). More = longer memory. Changing it rebuilds the temporal state (brief resync flash).">
         </label>
+        <label>Auto-resync <span id="sResyncVal">8</span> <small class="hint">chunks</small>
+          <input id="sResync" type="range" min="0" max="24" step="1" value="8" title="Re-anchor the temporal state every N chunks. SANA-Streaming drifts to colored mush after ~10-15 chunks of unbounded live streaming; this re-grabs the input to hold coherence. Lower = more stable but a re-anchor seam more often; 0 = off (raw drift, will degrade to noise on long runs).">
+        </label>
+        <small class="hint" style="display:block;margin:-4px 0 8px">Keep Auto-resync &gt; 0 for long runs — 0 reproduces the colored-noise drift.</small>
         <label class="check">
           <input id="sSink" type="checkbox" checked title="Attention-sink token for long-run stability. Toggling rebuilds the temporal state."> Sink token <small class="hint">resyncs</small>
         </label>

@@ -46,3 +46,35 @@ def test_control_endpoint_forwards_sana_knobs():
     res = client.post("/api/control", json={"flow_shift": 6.0, "num_cached_blocks": 1})
     assert res.status_code == 200
     assert r.last == {"flow_shift": 6.0, "num_cached_blocks": 1}  # only provided fields forwarded
+
+
+def test_resync_every_default_and_reaches_config():
+    # SANA-Streaming drifts to colored noise when run unbounded; the runtime re-anchors the
+    # temporal state every resync_every chunks. Default must be > 0 so live runs stay coherent.
+    assert RunnerConfig().resync_every == 8
+    cfg = RunnerConfigIn(backend="sana_streaming", resync_every=12).to_config()
+    assert cfg.resync_every == 12
+
+
+def test_factory_threads_resync_every_to_runtime():
+    rt = default_runtime_factory(RunnerConfig(backend="sana_streaming", resync_every=5))
+    assert rt.resync_every == 5
+
+
+def test_control_endpoint_forwards_resync_every():
+    class _R:
+        def __init__(self):
+            self.last = None
+
+        def apply_control(self, **kw):
+            self.last = kw
+            return kw
+
+        def status(self):
+            return {"running": False}
+
+    r = _R()
+    client = TestClient(create_app(r))
+    res = client.post("/api/control", json={"resync_every": 0})  # 0 = operator disables resync
+    assert res.status_code == 200
+    assert r.last == {"resync_every": 0}
